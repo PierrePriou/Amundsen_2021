@@ -1,2 +1,2 @@
 # Amundsen_2021
-Repository containing the code pertaining to the analyses of data collected onboard the Amundsen during the DarkEdge leg (leg5) in October 2021. The code is used to analyse narrowband and wideband acoustic (Simrad EK80 and WBAT), underwater vision profiler (UVP5 and 6), and light penetration data (C-OPS).
+Repository containing the code pertaining to the analyses of data collected onboard the Amundsen during the DarkEdge leg (leg5) in October 2021. The code is used to analyze narrowband and wideband acoustic (Simrad EK80 and WBAT), underwater vision profiler (UVP5 and 6), and light penetration data (C-OPS).

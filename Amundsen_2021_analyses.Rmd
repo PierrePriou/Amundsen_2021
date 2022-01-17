@@ -1,6 +1,6 @@
 ---
 title: "Amundsen 2021 - Analyses"
 author: "Pierre Priou"
-date: "1/17/2022"
-output: html_document
+date: "17/01/2022"
+output: github_document
 ---

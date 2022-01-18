@@ -1,11 +1,12 @@
 ---
 title: "Amundsen 2021 - Analyses"
-author: "Pierre Priou"
-date: "17/01/2022"
+author: "Pierre Priou - pierre.priou@mi.mun.ca"
+date: "`r Sys.Date()`"
 output: github_document
+always_allow_html: true
 ---
 
-```{r r-setup, message = FALSE}
+```{r r-setup, message=FALSE}
 # Load packages
 library(tidyverse)                # Tidy code
 library(lubridate)                # Date handling
@@ -46,7 +47,7 @@ The goals of this study were two-fold, (1) investigate whether mesopelagic organ
 
 # Materials and methods
 
-```{r load-data, message = FALSE}
+```{r load-data, message=FALSE}
 # Load data
 load("data/CTD/DarkEdge_CTD.RData") # CTD data
 bathy <- read_csv("data/bathy/bathy_BaffinBay_-105-45;65;82_res2.csv") %>%
@@ -81,73 +82,82 @@ Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was 
 
 ```{r load-WBAT-data}
 # Load WBAT data
-WBAT_raw <- list.files("data/acoustics/WBAT", pattern="*.csv", full.names=T) %>% 
+WBAT_raw <- list.files("data/acoustics/WBAT", pattern = "*.csv", full.names = T) %>% 
   set_names() %>%
-  map_dfr(.f=read.csv, .id="filename") %>% # reads file
-  rename("range"="Layer_depth_min", "frequency"="Frequency") %>%
-  unite(date_WBAT, Date_S, Time_S, sep=" ", remove=F) %>%
-  mutate(station=str_extract(filename, pattern="DE[0-9]{3}"),
-         CTD_id=str_extract(filename, pattern="[0-9]{7}"),
-         date_WBAT=round_date(ymd_hms(date_WBAT, tz="UTC"), "second"),
-         UTC=str_extract(filename, pattern="UTC")) %>% # WBAT clock was either off by 4 hours or was in UTC
-   mutate(date_ref_CTD=first(subset(CTD, round(depth)==8)$date),
-          diff_date=first(date_WBAT)-date_ref_CTD,
-          date=if_else(is.na(UTC)==T, date_WBAT-diff_date, date_WBAT)) %>%
+  map_dfr(.f = read.csv, .id = "filename") %>% # reads file
+  rename("range" = "Layer_depth_min", "frequency" = "Frequency") %>%
+  unite(date_WBAT, Date_S, Time_S, sep = " ", remove = F) %>%
+  mutate(station = str_extract(filename, pattern = "DE[0-9]{3}"),
+         CTD_id = str_extract(filename, pattern = "[0-9]{7}"),
+         date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second"),
+         UTC = str_extract(filename, pattern = "UTC")) %>% # WBAT clock was either off by 4 hours or was in UTC
+   mutate(date_ref_CTD = first(subset(CTD, round(depth) == 8)$date),
+          diff_date = first(date_WBAT) - date_ref_CTD,
+          date = if_else(is.na(UTC) == T, date_WBAT - diff_date, date_WBAT)) %>%
   dplyr::select(station, CTD_id, date, frequency, range, Sv_mean, NASC)
 ```
 
-```{r map-CTD-locations, echo=F, fig.align='center', fig.height=4, fig.width=9}
+```{r map-CTD-locations, echo=FALSE, fig.align='center', fig.height=4, fig.width=9}
+WBAT_summary <- WBAT_raw %>%
+  group_by(CTD_id) %>%
+  summarise() %>%
+  ungroup() %>%
+  mutate(WBAT = T)
 # Map
 map_summary <- CTD_1m %>%
   group_by(CTD_id) %>%
-  summarise(lat=mean(lat_mean), lon=mean(lon_mean)) %>%
-  # Plot
+  summarise(lat = mean(lat_mean), lon = mean(lon_mean)) %>%
+  ungroup() %>%
+  mutate(CTD = T) %>%
+  left_join(., WBAT_summary, by = c("CTD_id")) %>%
+  mutate(st_type = factor(case_when(CTD == T & WBAT == T ~ "CTD, UVP, WBAT",
+                                  CTD == T & is.na(WBAT) == T ~ "CTD, UVP"),
+                               levels=c("CTD, UVP", "CTD, UVP, WBAT"))) %>%
   ggplot() + 
   # Longitude lines
-  geom_segment(aes(x=-90, xend=-90, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-85, xend=-85, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-80, xend=-80, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-75, xend=-75, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-70, xend=-70, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-65, xend=-65, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-60, xend=-60, y=60, yend=90), col="grey90", size=0.3, lty=2) +
-  scale_x_continuous("Longitude (°E)", breaks=c(-85.1,-80,-75,-69.9), 
-                     labels=c(-85,-80,-75,-70), expand=c(0,0)) +
+  geom_segment(aes(x = -90, xend = -90, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -85, xend = -85, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -80, xend = -80, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -75, xend = -75, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -70, xend = -70, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -65, xend = -65, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -60, xend = -60, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  scale_x_continuous("Longitude (°E)", breaks = c(-85.1,-80,-75,-69.9), labels = c(-85,-80,-75,-70), expand = c(0,0)) +
   # Latitude lines
-  geom_segment(aes(x=-120, xend=0, y=74, yend=74), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-120, xend=0, y=75, yend=75), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-120, xend=0, y=76, yend=76), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-120, xend=0, y=77, yend=77), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-120, xend=0, y=78, yend=78), col="grey90", size=0.3, lty=2) +
-  geom_segment(aes(x=-120, xend=0, y=79, yend=79), col="grey90", size=0.3, lty=2) +
-  scale_y_continuous("Latitude (°N)", breaks=c(74,75.025,76.055,77.09,78.12), 
-                     labels=seq(74,78,1), expand=c(0,0)) +
-  # Plot 500, 1000, and 2000m isobath
-  geom_contour(data=bathy, aes(x=lon, y=lat, z=depth), breaks=-500,
-               size=0.3, colour="grey70", lty=1) +
-  # geom_tile(data=bathy, aes(x=lon, y=lat, fill=depth_d)) +
+  geom_segment(aes(x = -120, xend = 0, y = 74, yend = 74), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 75, yend = 75), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 76, yend = 76), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 77, yend = 77), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 78, yend = 78), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 79, yend = 79), col = "grey90", size = 0.3, lty = 2) +
+  scale_y_continuous("Latitude (°N)", breaks = c(74,75.025,76.055,77.09,78.12), labels = seq(74,78,1), expand = c(0,0)) +
+  # Plot 500 m isobath
+  geom_contour(data = bathy, aes(x = lon, y = lat, z = depth), breaks = -500, size = 0.3, colour = "grey70", lty = 1) +
   # Plot coastline and glaciers
-  geom_polygon(data=coast, aes(x=lon, y=lat, group=group), fill="grey20", col="transparent") +
-  # geom_polygon(data=glacier, aes(x=lon, y=lat, group=group), fill="grey90") +
-  geom_polygon(data=coast, aes(x=lon, y=lat, group=group), fill="transparent", col="black", size=0.1) +
-  # Plot CTD casts locations
-  geom_point(aes(x=lon, y=lat), col="red", size=2) +
-  scale_color_discrete("CTD cast") +
-  scale_fill_cmocean(name="deep", discrete=T) +
+  geom_polygon(data = coast, aes(x = lon, y = lat, group = group), fill = "grey80", col = "transparent") +
+  # geom_polygon(data = glacier, aes(x = lon, y = lat, group = group), fill = "grey97") +
+  # geom_polygon(data = coast, aes(x = lon, y = lat, group = group), fill = "transparent", col = "grey30", size = 0.1) +
+  # Add labels
+  annotate("text", y = 76.95, x = -84, label = "Ellesmere Island", color = "grey30", fontface = "italic") +
+  annotate("text", y = 75.2, x = -83, label = "Devon Island", color = "grey30", fontface = "italic") +
+  annotate("text", y = 78.2, x = -68, label = "Greenland", color = "grey30", fontface = "italic") +
+  annotate("text", y = 78.65, x = -73.7, label = "Smith\nSound", color = "black", fontface = "italic") +
+  annotate("text", y = 76.2, x = -86.5, label = "Jones Sound", color = "black", fontface = "italic") +
+  annotate("text", y = 75, x = -73, label = "Baffin Bay", color = "black", fontface = "italic") +
+  # Plot stations
+  geom_point(aes(x = lon, y = lat, col = st_type), size = 2, alpha = 0.7) +
+  scale_color_manual(values=met.brewer(name = "Egypt", n = 2, type = "discrete")) +
   # Change map projection
-  coord_map("azequidistant", ylim=c(74.5,78.8), xlim=c(-89,-68)) +
-  # coord_cartesian(ylim=c(74,79), xlim=c(-86,-67)) +
-  theme(axis.text=element_text(), axis.ticks=element_line(), legend.title=element_text(hjust=0.5),
-        panel.border=element_rect(fill=NA))
-
+  coord_map("azequidistant", ylim = c(74.5,78.8), xlim = c(-89,-68)) +
+  theme(axis.text = element_text(), axis.ticks = element_line(), legend.title = element_blank(),
+        legend.position = "top", panel.border = element_rect(fill = NA))
 # Photo CTD rosette
-img_path <- readPNG("photos/DSCF5960_rosette_downward.png")
-
+img_path <- readPNG("data/photos/DSCF5960_rosette_downward.png")
 # Plot
-plot_grid(map_summary, ggdraw() + draw_image(img_path, scale=0.9), labels="AUTO", label_size=9)
+plot_grid(map_summary, ggdraw() + draw_image(img_path, scale = 0.9), labels = "AUTO", label_size = 9)
 ```
 
-**Figure  1. A** Locations of the CTD casts in northern Baffin Bay (colored dots). The solid grey line represents the 500 m isobath. **`r text_col("Make sure that the map has the WBAT stations instead of the CTD and polygons to define the areas. Summary table of each DE station?","red")`** **B** WBAT with sideward facing transducers, UVP5. and UVP6 installed on the CTD rosette. 
+**Figure  1. A** Location of the stations in northern Baffin Bay where the CTD, UVP, and WBAT were deployed (coloured dots). The solid grey line represents the 500 m isobath. **B** WBAT with sideward facing transducers, UVP5. and UVP6 installed on the CTD rosette. 
 
 **FREQUENCY RESPONSES**
 
@@ -165,28 +175,28 @@ plot_grid(map_summary, ggdraw() + draw_image(img_path, scale=0.9), labels="AUTO"
 
 # Appendix
 
-```{r supplementary-table-echosounder, echo=F}
+```{r supplementary-table-echosounder, echo=FALSE}
 # Create table
-data.frame(Instrument=c(rep("EK80",2), rep("WBAT",2)),
-           Transducer=c("ES38-7","ES120-7C","ES38-18DK", "ES333-7CDK"),
-           Beam=c(rep("Split",3),"Single"),
-           Mode=c("CW","CW","FM","FM"),
-           freq=c("38","120","36-45","283-383"),
-           power=c(2000,250,450,50),
-           pulse_length=c(1024,1024,2048,2048),
-           Ramping=c(rep("Fast",2),"?","?"),
-           ping_rate=c(rep("max",2), "0.5","0.5"),
-           filter_type=c("","","?","?"),
-           FM_mode=c("","","?","?") )%>%
-  rename("Frequency (kHz)"=freq,
-         "Power (W)"=power,
-         "Pulse length (μs)"=pulse_length,
-         "Ping rate (Hz)"=ping_rate,
-         "Filter type"=filter_type,
-         "FM mode"=FM_mode) %>%
-  kbl(align="llccccccccc") %>% 
-  kable_classic(full_width=T, html_font="Arial") %>%
-  row_spec(0,bold=T)
+data.frame(Instrument = c(rep("EK80",2), rep("WBAT",2)),
+           Transducer = c("ES38-7","ES120-7C","ES38-18DK", "ES333-7CDK"),
+           Beam = c(rep("Split",3),"Single"),
+           Mode = c("CW","CW","FM","FM"),
+           freq = c("38","120","36-45","283-383"),
+           power = c(2000,250,450,50),
+           pulse_length = c(1024,1024,2048,2048),
+           Ramping = c(rep("Fast",2),"?","?"),
+           ping_rate = c(rep("max",2), "0.5","0.5"),
+           filter_type = c("","","?","?"),
+           FM_mode = c("","","?","?") )%>%
+  rename("Frequency (kHz)" = freq,
+         "Power (W)" = power,
+         "Pulse length (μs)" = pulse_length,
+         "Ping rate (Hz)" = ping_rate,
+         "Filter type" = filter_type,
+         "FM mode" = FM_mode) %>%
+  kbl(align = "llccccccccc") %>% 
+  kable_classic(full_width = T, html_font = "Arial") %>%
+  row_spec(0,bold = T)
 ```
 
 **Table S1.** Settings of the ship-borne echosounder (Simrad EK80) and acoustic probe (Simrad WBAT) used during the DarkEdge campaign in October 2021.

@@ -159,6 +159,10 @@ plot_grid(map_summary, ggdraw() + draw_image(img_path, scale = 0.9), labels = "A
 
 **Figure  1. A** Location of the stations in northern Baffin Bay where the CTD, UVP, and WBAT were deployed (coloured dots). The solid grey line represents the 500 m isobath. **B** WBAT with sideward facing transducers, UVP5. and UVP6 installed on the CTD rosette. 
 
+```{r}
+map_summary
+```
+
 **FREQUENCY RESPONSES**
 
 ## Zooplankton data

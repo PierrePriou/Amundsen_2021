@@ -18,8 +18,8 @@ library(scales)                   # Plots with dates
 library(stringr)                  # Work with strings
 library(MetBrewer)                # Colour palettes
 library(cmocean)                  # Colour palettes
+library(roxygen2)
 source("R/Sv_depth_correction.R") # Correct Sv vertical profiles
-source("R/getNOAA.ice.bathy.R")   # Load bathy data from NOAA
 source("R/text_col.R")            # Change inline text colour
 # Suppress summarise() warning
 options(dplyr.summarise.inform=F)

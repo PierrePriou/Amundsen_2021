@@ -50,13 +50,13 @@ The goals of this study were two-fold, (1) investigate whether mesopelagic organ
 # Load data
 load("data/CTD/DarkEdge_CTD.RData") # CTD data
 bathy <- read_csv("data/bathy/bathy_BaffinBay_-105-45;65;82_res2.csv") %>%
-  mutate(depth_d = factor(if_else(between(depth,-50,Inf), "0-50",
-                        if_else(between(depth,-100,-50), "50-100",
-                        if_else(between(depth,-200,-100), "100-200",
-                        if_else(between(depth,-500,-200), "200-500",
-                        if_else(between(depth,-1000,-500), "500-1000",
-                        if_else(between(depth,-Inf,-1000), "1000-2500", ">0")))))),
-                 levels = c(">0","0-50","50-100","100-200","200-500","500-1000","1000-2500")))
+  mutate(depth_d = factor(case_when(between(depth, -50, Inf) ~ "0-50",
+                                    between(depth, -100, -50) ~ "50-100",
+                                    between(depth, -200, -100) ~ "100-200",
+                                    between(depth, -500, -200) ~ "200-500",
+                                    between(depth, -1000, -500) ~ "500-1000",
+                                    between(depth, -Inf, -1000) ~ "1000-2500"),
+                          levels = c("0-50", "50-100", "100-200", "200-500", "500-1000", "1000-2500")))
 coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
   fortify() %>%
   rename(lon = long,

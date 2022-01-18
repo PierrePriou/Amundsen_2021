@@ -66,3 +66,128 @@ glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # G
   rename(lon = long,
          region = id)
 ```
+
+The CCGS *Amundsen* surveyed northern Baffin Bay between between October 12 and 27, 2021 (Figure 1) during the DarkEdge campaign. We deployed our instruments at three stations, north of Coburg Island, in Smith Sound, and Jones Sound in varying sea ice conditions (Figure 1).
+
+## Environmental data
+
+A Seabird SBE911+ Conductivity Temperature Depth sensor (CTD) collected vertical profiles of temperature, salinity, and pressure. The CTD rosette was also equipped with an oxygen sensor (Seabird SBE43), a transmissometer (Wetlab Cstar), two fluorimeters (Seabird SCF and ECO CDOM), two PAR sensors (one underwater Biospherical Instruments PAR-QCP 2300, and surface Biospherical Instruments PAR-QCP 2200), and a nitrate sensor (Satlantic). We only considered downcast data. A total of `r length(unique(CTD_1m$CTD_id))` CTD casts were collected.
+
+## Acoustic data
+
+Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette (Figure 1B). The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz (Figure 1A, Table S1). The WBAT was activated with a pressure switch at 8 m depth. On October 18^th^ the pressure switch malfunctioned and we therefore synchronized clocks of the WBAT and CTD to associate backscatter measurements to depth.
+
+Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded—4.00 m between 36-45 kHz and 1.75 m between 283-383 kHz. Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
+
+```{r load-WBAT-data}
+# Load WBAT data
+WBAT_raw <- list.files("data/acoustics/WBAT", pattern="*.csv", full.names=T) %>% 
+  set_names() %>%
+  map_dfr(.f=read.csv, .id="filename") %>% # reads file
+  rename("range"="Layer_depth_min", "frequency"="Frequency") %>%
+  unite(date_WBAT, Date_S, Time_S, sep=" ", remove=F) %>%
+  mutate(station=str_extract(filename, pattern="DE[0-9]{3}"),
+         CTD_id=str_extract(filename, pattern="[0-9]{7}"),
+         date_WBAT=round_date(ymd_hms(date_WBAT, tz="UTC"), "second"),
+         UTC=str_extract(filename, pattern="UTC")) %>% # WBAT clock was either off by 4 hours or was in UTC
+   mutate(date_ref_CTD=first(subset(CTD, round(depth)==8)$date),
+          diff_date=first(date_WBAT)-date_ref_CTD,
+          date=if_else(is.na(UTC)==T, date_WBAT-diff_date, date_WBAT)) %>%
+  dplyr::select(station, CTD_id, date, frequency, range, Sv_mean, NASC)
+```
+
+```{r map-CTD-locations, echo=F, fig.align='center', fig.height=4, fig.width=9}
+# Map
+map_summary <- CTD_1m %>%
+  group_by(CTD_id) %>%
+  summarise(lat=mean(lat_mean), lon=mean(lon_mean)) %>%
+  # Plot
+  ggplot() + 
+  # Longitude lines
+  geom_segment(aes(x=-90, xend=-90, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-85, xend=-85, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-80, xend=-80, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-75, xend=-75, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-70, xend=-70, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-65, xend=-65, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-60, xend=-60, y=60, yend=90), col="grey90", size=0.3, lty=2) +
+  scale_x_continuous("Longitude (°E)", breaks=c(-85.1,-80,-75,-69.9), 
+                     labels=c(-85,-80,-75,-70), expand=c(0,0)) +
+  # Latitude lines
+  geom_segment(aes(x=-120, xend=0, y=74, yend=74), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-120, xend=0, y=75, yend=75), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-120, xend=0, y=76, yend=76), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-120, xend=0, y=77, yend=77), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-120, xend=0, y=78, yend=78), col="grey90", size=0.3, lty=2) +
+  geom_segment(aes(x=-120, xend=0, y=79, yend=79), col="grey90", size=0.3, lty=2) +
+  scale_y_continuous("Latitude (°N)", breaks=c(74,75.025,76.055,77.09,78.12), 
+                     labels=seq(74,78,1), expand=c(0,0)) +
+  # Plot 500, 1000, and 2000m isobath
+  geom_contour(data=bathy, aes(x=lon, y=lat, z=depth), breaks=-500,
+               size=0.3, colour="grey70", lty=1) +
+  # geom_tile(data=bathy, aes(x=lon, y=lat, fill=depth_d)) +
+  # Plot coastline and glaciers
+  geom_polygon(data=coast, aes(x=lon, y=lat, group=group), fill="grey20", col="transparent") +
+  # geom_polygon(data=glacier, aes(x=lon, y=lat, group=group), fill="grey90") +
+  geom_polygon(data=coast, aes(x=lon, y=lat, group=group), fill="transparent", col="black", size=0.1) +
+  # Plot CTD casts locations
+  geom_point(aes(x=lon, y=lat), col="red", size=2) +
+  scale_color_discrete("CTD cast") +
+  scale_fill_cmocean(name="deep", discrete=T) +
+  # Change map projection
+  coord_map("azequidistant", ylim=c(74.5,78.8), xlim=c(-89,-68)) +
+  # coord_cartesian(ylim=c(74,79), xlim=c(-86,-67)) +
+  theme(axis.text=element_text(), axis.ticks=element_line(), legend.title=element_text(hjust=0.5),
+        panel.border=element_rect(fill=NA))
+
+# Photo CTD rosette
+img_path <- readPNG("photos/DSCF5960_rosette_downward.png")
+
+# Plot
+plot_grid(map_summary, ggdraw() + draw_image(img_path, scale=0.9), labels="AUTO", label_size=9)
+```
+
+**Figure  1. A** Locations of the CTD casts in northern Baffin Bay (colored dots). The solid grey line represents the 500 m isobath. **`r text_col("Make sure that the map has the WBAT stations instead of the CTD and polygons to define the areas. Summary table of each DE station?","red")`** **B** WBAT with sideward facing transducers, UVP5. and UVP6 installed on the CTD rosette. 
+
+**FREQUENCY RESPONSES**
+
+## Zooplankton data
+
+- **UVP**
+
+## Light data
+
+- **C-OPS**
+
+# Random thoughts
+
+- What would be the consequence on mesopelagic fish if there are more autumn blooms in the Arctic?
+
+# Appendix
+
+```{r supplementary-table-echosounder, echo=F}
+# Create table
+data.frame(Instrument=c(rep("EK80",2), rep("WBAT",2)),
+           Transducer=c("ES38-7","ES120-7C","ES38-18DK", "ES333-7CDK"),
+           Beam=c(rep("Split",3),"Single"),
+           Mode=c("CW","CW","FM","FM"),
+           freq=c("38","120","36-45","283-383"),
+           power=c(2000,250,450,50),
+           pulse_length=c(1024,1024,2048,2048),
+           Ramping=c(rep("Fast",2),"?","?"),
+           ping_rate=c(rep("max",2), "0.5","0.5"),
+           filter_type=c("","","?","?"),
+           FM_mode=c("","","?","?") )%>%
+  rename("Frequency (kHz)"=freq,
+         "Power (W)"=power,
+         "Pulse length (μs)"=pulse_length,
+         "Ping rate (Hz)"=ping_rate,
+         "Filter type"=filter_type,
+         "FM mode"=FM_mode) %>%
+  kbl(align="llccccccccc") %>% 
+  kable_classic(full_width=T, html_font="Arial") %>%
+  row_spec(0,bold=T)
+```
+
+**Table S1.** Settings of the ship-borne echosounder (Simrad EK80) and acoustic probe (Simrad WBAT) used during the DarkEdge campaign in October 2021.
+

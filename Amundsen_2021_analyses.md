@@ -157,12 +157,6 @@ the CTD, UVP, and WBAT were deployed (coloured dots). The solid grey
 line represents the 500 m isobath. **B** WBAT with sideward facing
 transducers, UVP5. and UVP6 installed on the CTD rosette.
 
-``` r
-map_summary
-```
-
-![](Amundsen_2021_analyses_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
-
 **FREQUENCY RESPONSES**
 
 ## Zooplankton data

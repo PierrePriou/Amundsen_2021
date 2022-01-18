@@ -4,3 +4,37 @@ author: "Pierre Priou"
 date: "17/01/2022"
 output: github_document
 ---
+
+```{r r-setup, message=FALSE}
+# Load packages
+library(tidyverse)                # Tidy code
+library(lubridate)                # Date handling
+library(kableExtra)               # Pretty tables
+library(cowplot)                  # Multiple plots
+library(png)                      # Read png files
+library(rgdal)                    # Read shapefiles
+library(marmap)                   # Bathymetry data of the Arctic Ocean
+library(scales)                   # Plots with dates
+library(stringr)                  # Work with strings
+library(MetBrewer)                # Colour palettes
+library(cmocean)                  # Colour palettes
+source("R/Sv_depth_correction.R") # Correct Sv vertical profiles
+source("R/getNOAA.ice.bathy.R")   # Load bathy data from NOAA
+source("R/text_col.R")            # Change inline text colour
+# Suppress summarise() warning
+options(dplyr.summarise.inform=F)
+# Theme for figures
+theme_set(theme_bw())
+theme_update(panel.grid=element_blank(), 
+             panel.border=element_blank(), 
+             axis.line=element_line(),
+             axis.text=element_text(size=10),
+             axis.title=element_text(size=11),
+             legend.title=element_text(size=11),
+             strip.text.x=element_text(size=11, face="plain", hjust=0.5),
+             strip.background=element_rect(colour="transparent", fill="transparent"),
+             legend.margin=margin(0,0,0,0),
+             legend.box.margin=margin(0,0,-8,0),
+             plot.margin=unit(c(0.05,0.05,0.05,0.05), "in"))
+```
+

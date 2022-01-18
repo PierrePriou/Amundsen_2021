@@ -3,3 +3,98 @@ Amundsen 2021 - Analyses
 Pierre Priou
 17/01/2022
 
+``` r
+# Load packages
+library(tidyverse)                # Tidy code
+library(lubridate)                # Date handling
+library(kableExtra)               # Pretty tables
+library(cowplot)                  # Multiple plots
+library(png)                      # Read png files
+library(rgdal)                    # Read shapefiles
+library(marmap)                   # Bathymetry data of the Arctic Ocean
+library(scales)                   # Plots with dates
+library(stringr)                  # Work with strings
+library(MetBrewer)                # Colour palettes
+library(cmocean)                  # Colour palettes
+source("R/sv_correction_fm.R")    # Correct Sv vertical profiles
+# Suppress summarise() warning
+options(dplyr.summarise.inform = F)
+# Theme for figures
+theme_set(theme_bw())
+theme_update(panel.grid = element_blank(), 
+             panel.border = element_blank(), 
+             axis.line = element_line(),
+             axis.text = element_text(size = 10),
+             axis.title = element_text(size = 11),
+             legend.title = element_text(size = 11),
+             strip.text.x = element_text(size = 11, face = "plain", hjust = 0.5),
+             strip.background = element_rect(colour = "transparent", fill = "transparent"),
+             legend.margin = margin(0,0,0,0),
+             legend.box.margin = margin(0,0,-8,0),
+             plot.margin = unit(c(0.05,0.05,0.05,0.05), "in"))
+```
+
+# Introduction
+
+Diel vertical migrations (DVM) from ocean’s depth to the surface are a
+ubiquitous pattern of pelagic organisms of the global ocean (Cohen
+2009). While DVM are ultimately driven by predator-prey interactions
+(e.g., Urmy et al. 2021), environmental factors are known to define the
+extent and timing of these migrations. For example, temperature and
+oxygen can influence DVM patterns (Bianchi et al. 2013, Benoit-Bird et
+al. 2015?), but light penetration is considered to trump those other
+environmental cues (Asknes et al. 2017). Fish living in the mesopelagic
+zone, where the light intensity is between 10<sup>-9</sup> to
+10<sup>-1</sup> μmol quanta m<sup>2</sup> s<sup>-1</sup> (Kaartvedt et
+al., 2019), track a narrow range of ambient light levels—their light
+comfort zone (Rostad 2016)—and migrate vertically following those
+isolumes during the day-night cycle. They track their antipredation
+window, which enhance their feeding chances while reducing mortality
+through predation (Clark & Levy, 1988).
+
+In the Arctic, the extreme light regime has the potential to disrupt
+traditional DVM patterns, which could prevent the establishment of
+viable mesopelagic fish populations in the Arctic (Kaartvedt 2008). Yet,
+DVM can occur during the polar night at low light levels (Berge et
+al. 2009) and mesopelagic fish are not as seldom in the Arctic as
+previously thought, and are, in fact, widespread in high Arctic Seas
+(Priou et al. *in prep*). However, their survival mechanisms remain
+elusive. For most of the year mesopelagic fish remain segregated from
+their favourite preys (Gjøsæter et al. 2017, Knutsen et al. 2017,
+Geoffroy et al. 2019, Priou et al. 2021). Autumn has been suggested to
+be a key period for feeding of mesopelagic fish, as the photoperiod
+alternates between day and night—favouring large scale DVM—and their
+copepod preys occupy most of the water column (**ref**).
+
+The goals of this study were two-fold, (1) investigate whether
+mesopelagic organisms conduct DVM in autumn, and (2) if those organisms
+were associated to a specific range of ambient light levels matching
+those of the global ocean. Here, we deployed a combination of acoustic,
+optical, and environmental sensors and nets to document the vertical
+distribution of pelagic fish and zooplankton in northern Baffin Bay in
+autumn. We test the hypothesis that pelagic organisms follow a narrow
+range of light levels (different from the “new” definition of the
+mesopelagic zone) and thus conduct DVM.
+
+# Materials and methods
+
+``` r
+# Load data
+load("data/CTD/DarkEdge_CTD.RData") # CTD data
+bathy <- read_csv("data/bathy/bathy_BaffinBay_-105-45;65;82_res2.csv") %>%
+  mutate(depth_d = factor(if_else(between(depth,-50,Inf), "0-50",
+                        if_else(between(depth,-100,-50), "50-100",
+                        if_else(between(depth,-200,-100), "100-200",
+                        if_else(between(depth,-500,-200), "200-500",
+                        if_else(between(depth,-1000,-500), "500-1000",
+                        if_else(between(depth,-Inf,-1000), "1000-2500", ">0")))))),
+                 levels = c(">0","0-50","50-100","100-200","200-500","500-1000","1000-2500")))
+coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
+  fortify() %>%
+  rename(lon = long,
+         region = id)
+glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # Glaciers
+  fortify() %>%
+  rename(lon = long,
+         region = id)
+```

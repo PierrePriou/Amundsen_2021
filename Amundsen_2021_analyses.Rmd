@@ -5,7 +5,7 @@ date: "17/01/2022"
 output: github_document
 ---
 
-```{r r-setup, message=FALSE}
+```{r r-setup, message = FALSE}
 # Load packages
 library(tidyverse)                # Tidy code
 library(lubridate)                # Date handling
@@ -18,24 +18,22 @@ library(scales)                   # Plots with dates
 library(stringr)                  # Work with strings
 library(MetBrewer)                # Colour palettes
 library(cmocean)                  # Colour palettes
-library(roxygen2)
-source("R/Sv_depth_correction.R") # Correct Sv vertical profiles
-source("R/text_col.R")            # Change inline text colour
+source("R/sv_correction_fm.R")    # Correct Sv vertical profiles
 # Suppress summarise() warning
-options(dplyr.summarise.inform=F)
+options(dplyr.summarise.inform = F)
 # Theme for figures
 theme_set(theme_bw())
-theme_update(panel.grid=element_blank(), 
-             panel.border=element_blank(), 
-             axis.line=element_line(),
-             axis.text=element_text(size=10),
-             axis.title=element_text(size=11),
-             legend.title=element_text(size=11),
-             strip.text.x=element_text(size=11, face="plain", hjust=0.5),
-             strip.background=element_rect(colour="transparent", fill="transparent"),
-             legend.margin=margin(0,0,0,0),
-             legend.box.margin=margin(0,0,-8,0),
-             plot.margin=unit(c(0.05,0.05,0.05,0.05), "in"))
+theme_update(panel.grid = element_blank(), 
+             panel.border = element_blank(), 
+             axis.line = element_line(),
+             axis.text = element_text(size = 10),
+             axis.title = element_text(size = 11),
+             legend.title = element_text(size = 11),
+             strip.text.x = element_text(size = 11, face = "plain", hjust = 0.5),
+             strip.background = element_rect(colour = "transparent", fill = "transparent"),
+             legend.margin = margin(0,0,0,0),
+             legend.box.margin = margin(0,0,-8,0),
+             plot.margin = unit(c(0.05,0.05,0.05,0.05), "in"))
 ```
 
 # Introduction
@@ -48,26 +46,23 @@ The goals of this study were two-fold, (1) investigate whether mesopelagic organ
 
 # Materials and methods
 
-```{r load-data, message=F}
+```{r load-data, message = FALSE}
 # Load data
 load("data/CTD/DarkEdge_CTD.RData") # CTD data
-bathy <- getNOAA.ice.bathy(lon1=-105, lon2=-45, lat1=65, lat2=82, # Bathy
-                           resolution=2, keep=T, path="data/bathy") %>%
-  fortify.bathy() %>%
-  rename(lon=x, lat=y, depth=z) %>%
-  mutate(depth_d=factor(if_else(between(depth,-50,Inf), "0-50",
+bathy <- read_csv("data/bathy/bathy_BaffinBay_-105-45;65;82_res2.csv") %>%
+  mutate(depth_d = factor(if_else(between(depth,-50,Inf), "0-50",
                         if_else(between(depth,-100,-50), "50-100",
                         if_else(between(depth,-200,-100), "100-200",
                         if_else(between(depth,-500,-200), "200-500",
                         if_else(between(depth,-1000,-500), "500-1000",
                         if_else(between(depth,-Inf,-1000), "1000-2500", ">0")))))),
-                 levels=c(">0","0-50","50-100","100-200","200-500","500-1000","1000-2500")))
-coast <- readOGR("data/bathy/ne_10m_land.shp", verbose=F) %>% # Coastlines
+                 levels = c(">0","0-50","50-100","100-200","200-500","500-1000","1000-2500")))
+coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
   fortify() %>%
-  rename(lon=long,
-         region=id)
-glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose=F) %>% # Glaciers
+  rename(lon = long,
+         region = id)
+glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # Glaciers
   fortify() %>%
-  rename(lon=long,
-         region=id)
+  rename(lon = long,
+         region = id)
 ```

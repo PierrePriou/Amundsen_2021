@@ -78,10 +78,6 @@ A Seabird SBE911+ Conductivity Temperature Depth sensor (CTD) collected vertical
 
 ## Acoustic data
 
-Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette (Figure 1B). The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz (Figure 1A, Table S1). The WBAT was activated with a pressure switch at 8 m depth. On October 18^th^ the pressure switch malfunctioned and we therefore synchronized clocks of the WBAT and CTD to associate backscatter measurements to depth.
-
-Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded—4.00 m between 36-45 kHz and 1.75 m between 283-383 kHz. Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
-
 ```{r load-WBAT-data}
 # Load WBAT data
 WBAT_raw <- list.files(paste0(path, "data/acoustics/WBAT"), pattern = "*.csv", full.names = T) %>% 
@@ -89,7 +85,7 @@ WBAT_raw <- list.files(paste0(path, "data/acoustics/WBAT"), pattern = "*.csv", f
   map_dfr(.f = read.csv, .id = "filename") %>% # reads file
   rename("range" = "Layer_depth_min", "frequency" = "Frequency") %>%
   unite(date_WBAT, Date_S, Time_S, sep = " ", remove = F) %>%
-  mutate(station = str_extract(filename, pattern = "DE[0-9]{3}"),
+  mutate(station = str_extract(filename, pattern = "[A-Z]{2}[0-9]{3}"),
          CTD_id = str_extract(filename, pattern = "[0-9]{7}"),
          date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second"),
          UTC = str_extract(filename, pattern = "UTC")) %>% # WBAT clock was either off by 4 hours or was in UTC
@@ -98,6 +94,10 @@ WBAT_raw <- list.files(paste0(path, "data/acoustics/WBAT"), pattern = "*.csv", f
           date = if_else(is.na(UTC) == T, date_WBAT - diff_date, date_WBAT)) %>%
   dplyr::select(station, CTD_id, date, frequency, range, Sv_mean, NASC)
 ```
+
+Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette (Figure 1B). The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz (Figure 1A, Table S1). The WBAT was activated with a pressure switch at 8 m depth. On October 18^th^ the pressure switch malfunctioned and we therefore synchronized clocks of the WBAT and CTD to associate backscatter measurements to depth. We only considered downcasts measurements, and collected, a total of `r length(unique(WBAT_raw$CTD_id))` backscatter vertical profiles.
+
+Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded—4.00 m between 36-45 kHz and 1.75 m between 283-383 kHz. Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
 
 ```{r map-CTD-locations, echo=FALSE, fig.align='center', fig.height=4, fig.width=9}
 WBAT_summary <- WBAT_raw %>%

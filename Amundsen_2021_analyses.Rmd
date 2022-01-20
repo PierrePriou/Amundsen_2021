@@ -19,6 +19,7 @@ library(scales)                   # Plots with dates
 library(stringr)                  # Work with strings
 library(MetBrewer)                # Colour palettes
 library(cmocean)                  # Colour palettes
+library(magick)                   # Draw images
 source("R/sv_correction_fm.R")    # Correct Sv vertical profiles
 # Suppress summarise() warning
 options(dplyr.summarise.inform = F)
@@ -35,6 +36,7 @@ theme_update(panel.grid = element_blank(),
              legend.margin = margin(0,0,0,0),
              legend.box.margin = margin(0,0,-8,0),
              plot.margin = unit(c(0.05,0.05,0.05,0.05), "in"))
+path <- "C:/Users/cfer/PhD/Amundsen 2021/"
 ```
 
 # Introduction
@@ -49,8 +51,8 @@ The goals of this study were two-fold, (1) investigate whether mesopelagic organ
 
 ```{r load-data, message=FALSE}
 # Load data
-load("data/CTD/DarkEdge_CTD.RData") # CTD data
-bathy <- read_csv("data/bathy/bathy_BaffinBay_-105-45;65;82_res2.csv") %>%
+load(paste0(path, "data/CTD/DarkEdge_CTD.RData")) # CTD data
+bathy <- read_csv(paste0(path, "data/bathy/bathy_BaffinBay_-105;-45;65;82_res2.csv")) %>%
   mutate(depth_d = factor(case_when(between(depth, -50, Inf) ~ "0-50",
                                     between(depth, -100, -50) ~ "50-100",
                                     between(depth, -200, -100) ~ "100-200",
@@ -58,11 +60,11 @@ bathy <- read_csv("data/bathy/bathy_BaffinBay_-105-45;65;82_res2.csv") %>%
                                     between(depth, -1000, -500) ~ "500-1000",
                                     between(depth, -Inf, -1000) ~ "1000-2500"),
                           levels = c("0-50", "50-100", "100-200", "200-500", "500-1000", "1000-2500")))
-coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
+coast <- readOGR(paste0(path, "data/bathy/ne_10m_land.shp"), verbose = F) %>% # Coastlines
   fortify() %>%
   rename(lon = long,
          region = id)
-glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # Glaciers
+glacier <- readOGR(paste0(path, "data/bathy/ne_10m_glaciated_areas.shp"), verbose = F) %>% # Glaciers
   fortify() %>%
   rename(lon = long,
          region = id)
@@ -82,7 +84,7 @@ Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was 
 
 ```{r load-WBAT-data}
 # Load WBAT data
-WBAT_raw <- list.files("data/acoustics/WBAT", pattern = "*.csv", full.names = T) %>% 
+WBAT_raw <- list.files(paste0(path, "data/acoustics/WBAT"), pattern = "*.csv", full.names = T) %>% 
   set_names() %>%
   map_dfr(.f = read.csv, .id = "filename") %>% # reads file
   rename("range" = "Layer_depth_min", "frequency" = "Frequency") %>%
@@ -152,7 +154,7 @@ map_summary <- CTD_1m %>%
   theme(axis.text = element_text(), axis.ticks = element_line(), legend.title = element_blank(),
         legend.position = "top", panel.border = element_rect(fill = NA))
 # Photo CTD rosette
-img_path <- readPNG("data/photos/DSCF5960_rosette_downward.png")
+img_path <- readPNG(paste0(path, "photos/DSCF5960_rosette_downward.png"))
 # Plot
 plot_grid(map_summary, ggdraw() + draw_image(img_path, scale = 0.9), labels = "AUTO", label_size = 9)
 ```

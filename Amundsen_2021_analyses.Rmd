@@ -99,6 +99,53 @@ WBAT_raw <- list.files("data/acoustics/WBAT", pattern = "*.csv", full.names = T)
 
 Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette (Figure 1B). The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz (Figure 1A, Table S1). The WBAT was activated with a pressure switch at 8 m depth. On October 18^th^ the pressure switch malfunctioned and we therefore synchronized clocks of the WBAT and CTD to associate backscatter measurements to depth. We only considered downcasts measurements, and collected, a total of `r length(unique(WBAT_raw$CTD_id))` backscatter vertical profiles.
 
+```{r tidy-WBAT-data}
+WBAT <- CTD %>%
+  dplyr::select(date, CTD_id, depth, cast, lat_mean, lon_mean) %>% # Match WBAT time to CTD time to get the depth
+  right_join(., WBAT_raw, by=c("date", "CTD_id")) #%>%
+# Select only downcast data for WBAT because it has less variability
+filter(cast=="downcast") %>%
+  # Use the depth to match with the downcast CTD data containing speed of sound and coefficients of absorption 
+  mutate(depth_round=ceiling(depth)) %>%
+  dplyr::select(-date, -depth, -cast) %>%
+  left_join(., CTD_1m_acoustic, by=c("CTD_id", "depth_round")) %>%
+  rename(depth=depth_round) %>%
+  # Correct Sv according to sound speed and absorption for every depth bin
+  mutate(Sv_corrected = case_when(frequency == 38 ~ sv_correction_fm(Sv = Sv_mean,
+                                                                     range = range,
+                                                                     f_nominal = 38,
+                                                                     f_start = 36, 
+                                                                     f_end = 45,
+                                                                     c_cal = 1450,
+                                                                     t_cal = 0.12351,
+                                                                     psi_cal = -12.5,
+                                                                     p_cal = 450,
+                                                                     abs_depth_cal = 300,
+                                                                     pH_cal = 8,
+                                                                     sal_cal = 34,
+                                                                     temp_cal = 0,
+                                                                     lat = lat_mean,
+                                                                     c_new = sound_speed, 
+                                                                     abs_new = abscoef_38),
+                                  frequency == 333 ~ sv_correction_fm(Sv = Sv_mean,
+                                                                      range = range,
+                                                                      f_nominal = 38,
+                                                                      f_start = 36, 
+                                                                      f_end = 45,
+                                                                      c_cal = 1450,
+                                                                      t_cal = 0.12351,
+                                                                      psi_cal = -12.5,
+                                                                      p_cal = 450,
+                                                                      abs_depth_cal = 300,
+                                                                      pH_cal = 8,
+                                                                      sal_cal = 34,
+                                                                      temp_cal = 0,
+                                                                      lat = lat_mean,
+                                                                      c_new = sound_speed, 
+                                                                      abs_new = abscoef_333))) %>%
+  dplyr::select(-sound_speed, -abscoef_38, -abscoef_333)
+```
+
 Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded—4.00 m between 36-45 kHz and 1.75 m between 283-383 kHz. Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
 
 ```{r map-CTD-locations, echo=FALSE, fig.align='center', fig.height=4, fig.width=9}

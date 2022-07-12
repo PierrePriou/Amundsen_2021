@@ -2,25 +2,26 @@
 title: "Amundsen 2021 - Analyses"
 author: "Pierre Priou - pierre.priou@mi.mun.ca"
 date: "`r Sys.Date()`"
-output: github_document
-always_allow_html: true
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_collapsed: true
 ---
 
 ```{r r-setup, message=FALSE}
 # Load packages
 library(tidyverse)                # Tidy code
 library(lubridate)                # Date handling
-library(kableExtra)               # Pretty tables
+library(dtplyr)                   # Speed up code
+library(plotly)                   # Interactive plots
+library(oce)                      # Speed of sound and absorption coefs.
 library(cowplot)                  # Multiple plots
-library(png)                      # Read png files
 library(rgdal)                    # Read shapefiles
 library(marmap)                   # Bathymetry data of the Arctic Ocean
-library(scales)                   # Plots with dates
-library(stringr)                  # Work with strings
-library(MetBrewer)                # Colour palettes
 library(cmocean)                  # Colour palettes
-library(magick)                   # Draw images
-source("R/sv_correction_fm.R")    # Correct Sv vertical profiles
+source("R/sv_depth_correction_fm.R")    # Correct Sv vertical profiles
 # Suppress summarise() warning
 options(dplyr.summarise.inform = F)
 # Theme for figures
@@ -31,11 +32,13 @@ theme_update(panel.grid = element_blank(),
              axis.text = element_text(size = 10),
              axis.title = element_text(size = 11),
              legend.title = element_text(size = 11),
-             strip.text.x = element_text(size = 11, face = "plain", hjust = 0.5),
-             strip.background = element_rect(colour = "transparent", fill = "transparent"),
-             legend.margin = margin(0,0,0,0),
-             legend.box.margin = margin(0,0,-8,0),
-             plot.margin = unit(c(0.05,0.05,0.05,0.05), "in"))
+             strip.text.x = element_text(size = 11, face = "plain", 
+                                         hjust = 0.5),
+             strip.background = element_rect(colour = "transparent", 
+                                             fill = "transparent"),
+             legend.margin = margin(0, 0, 0, 0),
+             legend.box.margin = margin(0, 0, -8, 0),
+             plot.margin = unit(c(0.05, 0.05, 0.05, 0.05), "in"))
 ```
 
 # Introduction
@@ -48,10 +51,10 @@ The goals of this study were two-fold, (1) investigate whether mesopelagic organ
 
 # Materials and methods
 
-```{r load-data, message=FALSE}
+```{r load-bathy-coast, message=FALSE}
 # Load data
-load("data/CTD/DarkEdge_CTD.RData") # CTD data
-bathy <- read_csv("data/bathy/bathy_BaffinBay_-105;-45;65;82_res2.csv") %>%
+bathy <- read_csv("data/bathy/bathy_BaffinBay_-105;-45;65;82_res2.csv",
+                  show_col_types = F) %>%
   mutate(depth_d = factor(case_when(between(depth, -50, Inf) ~ "0-50",
                                     between(depth, -100, -50) ~ "50-100",
                                     between(depth, -200, -100) ~ "100-200",
@@ -63,192 +66,226 @@ coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
   fortify() %>%
   rename(lon = long,
          region = id)
-glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # Glaciers
-  fortify() %>%
-  rename(lon = long,
-         region = id)
+# glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # Glaciers
+#   fortify() %>%
+#   rename(lon = long,
+#          region = id)
 ```
 
 The CCGS *Amundsen* surveyed northern Baffin Bay between between October 12 and 27, 2021 (Figure 1) during the DarkEdge campaign. We deployed our instruments at three stations, north of Coburg Island, in Smith Sound, and Jones Sound in varying sea ice conditions (Figure 1).
 
 ## Environmental data
 
-A Seabird SBE911+ Conductivity Temperature Depth sensor (CTD) collected vertical profiles of temperature, salinity, and pressure. The CTD rosette was also equipped with an oxygen sensor (Seabird SBE43), a transmissometer (Wetlab Cstar), two fluorimeters (Seabird SCF and ECO CDOM), two PAR sensors (one underwater Biospherical Instruments PAR-QCP 2300, and surface Biospherical Instruments PAR-QCP 2200), and a nitrate sensor (Satlantic). We only considered downcast data. A total of `r length(unique(CTD_1m$CTD_id))` CTD casts were collected.
+A Seabird SBE911+ Conductivity Temperature Depth sensor (CTD) collected vertical profiles of temperature, salinity, and pressure. The CTD rosette was also equipped with an oxygen sensor (Seabird SBE43), a transmissometer (Wetlab Cstar), two fluorimeters (Seabird SCF and ECO CDOM), two PAR sensors (one underwater Biospherical Instruments PAR-QCP 2300, and surface Biospherical Instruments PAR-QCP 2200), and a nitrate sensor (Satlantic). We only considered downcast data. 
 
-## Acoustic data
+```{r load-CTD}
+# Load CTD data
+CTD_raw <- read_csv("data/CTD/CTD_Amundsen_2021_all_leg.csv", show_col_types = F)
+```
+
+Select relevant CTD stations (2, 13, 25, 26, 28, 29, and 40).
+
+```{r CTD-cast-selection}
+CTD <- CTD_raw %>%
+  # Select data from leg 5
+  filter(leg == 5) %>%
+  # Select CTD casts
+  filter(cast_number %in% c(2, 13, 25, 26, 28, 29, 40)) %>%
+  # Select variables of interest
+  dplyr::select(station, cast_number, date, lat, lon, bottom_depth, depth_min, depth_max, PRES, TE90,
+                PSAL, SIGM, SPVA, VAIS, SIGT, POTM, SIGP, FRET, SVEL, ASAL, 
+                CONT, D_CT) %>% 
+  # Rename variable
+  rename(date_start_CTD = date) %>%
+  # Calculate depth
+  mutate(depth = round(swDepth(pressure = PRES, latitude = lat))) %>% 
+  # Summarise data per 1 m depth bin
+  group_by(date_start_CTD, station, cast_number, lat, lon, bottom_depth,
+           depth_min, depth_max, depth) %>%
+  summarise_all(mean) %>%
+  ungroup()
+```
+
+Cast 25 is full of `NaNs` so I replace these values with the appropriate data that I processed myself. 
+
+```{r CTD-add-CTD25}
+# Load CTD25 data
+CTD25 <- read_csv("data/CTD/CTD25_1m.csv", show_col_types = F) 
+
+CTD <- CTD %>%
+  # Combine CTD25
+  left_join(., CTD25, by = c("date_start_CTD", "station",
+                             "cast_number", "depth")) %>%
+  # Update values of CTD25
+  mutate(PRES = if_else(cast_number == 25 & is.na(PRES) == T, PRES_25, PRES),
+         TE90 = if_else(cast_number == 25 & is.na(TE90) == T, TE90_25, TE90),
+         PSAL = if_else(cast_number == 25 & is.na(PSAL) == T, PSAL_25, PSAL),
+         SIGT = if_else(cast_number == 25 & is.na(SIGT) == T, SIGT_25, SIGT),
+         SIGP = if_else(cast_number == 25 & is.na(SIGP) == T, SIGP_25, SIGP)) %>%
+  # Remove CTD25 variables
+  dplyr::select(-PRES_25, -TE90_25, -PSAL_25, -FLOR_25, -SIGT_25, -SIGP_25)
+```
+
+
+Since there was no pressure sensor on the WBAT, I need to find the depth at which data was collected. To do that I match the WBAT date to the date of unprocessed CTD data. Thus, I use the unprocessed CTD data and extract the mean depth of the CTD at each second (see `R\CTD_date_depth.R` for more details on this data processing).
+
+```{r CTD-date-depth-loading}
+CTD_date_depth <- read_csv("data/CTD/CTD_date_depth.csv", show_col_types = F)
+```
+
+```{r plot-turning-points}
+# ggplotly(CTD_date_depth %>% 
+#   # filter(!cast_number %in% c(2, 13)) %>%
+#   filter(cast_number == 2) %>%
+#   ggplot(aes(x = date, y = depth, col = cast)) +
+#   geom_point(size = 0.25) +
+#   scale_y_reverse() +
+#   facet_wrap(~ cast_number, scales = "free"))
+```
+
+## Wideband Acoustic Transceiver (WBAT)
+
+Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette. The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz. Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded (5.00 m). Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
 
 ```{r load-WBAT-data}
 # Load WBAT data
-WBAT_raw <- list.files("data/acoustics/WBAT", pattern = "*.csv", full.names = T) %>% 
+WBAT_raw <- list.files("data/WBAT", pattern = "*.csv", full.names = T) %>% 
   set_names() %>%
-  map_dfr(.f = read.csv, .id = "filename") %>% # reads file
-  rename("range" = "Layer_depth_min",
-         "frequency" = "Frequency") %>%
+  # Read files
+  map_dfr(.f = ~read_csv(., show_col_types = F), .id = "filename") %>% 
+  # Tidy data
   unite(date_WBAT, Date_S, Time_S, sep = " ", remove = F) %>%
   mutate(station = str_extract(filename, pattern = "[A-Z]{2}[0-9]{3}"),
-         CTD_id = str_extract(filename, pattern = "[0-9]{7}"),
-         UTC = str_detect(filename, pattern = "UTC"),
-         date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second"),
-         date = if_else(UTC == F, date_WBAT - hours(4), date_WBAT)) %>% 
-  left_join(., CTD_meta, by=c("date", "CTD_id"))
-  mutate(date_ref_CTD = first(subset(CTD, round(depth) == 8)$date),
-         diff_date = first(date_WBAT) - date_ref_CTD,
-         date = if_else(is.na(UTC) == T, date_WBAT - diff_date, date_WBAT))# %>%
-  # dplyr::select(station, CTD_id, date, frequency, range, Sv_mean, NASC)
+         station = if_else(str_detect(station, "BB") == T, "BB2", station),
+         CTD_id = str_extract(filename, pattern = "CTD[0-9]{2}"),
+         CTD_id = as.numeric(str_remove(CTD_id, pattern = "CTD")),
+         date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second")) %>%
+    rename(range = Layer_depth_min,
+           frequency = Frequency,
+           cast_number = CTD_id)
 ```
 
-Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette (Figure 1B). The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz (Figure 1A, Table S1). The WBAT was activated with a pressure switch at 8 m depth. On October 18^th^ the pressure switch malfunctioned and we therefore synchronized clocks of the WBAT and CTD to associate backscatter measurements to depth. We only considered downcasts measurements, and collected, a total of `r length(unique(WBAT_raw$CTD_id))` backscatter vertical profiles.
+The WBAT was activated with a pressure switch at 8 m depth. This switch malfunctioned on October 18^th^. Therefore, for CTD casts 2 and 13 I used the time of the first recorded ping to match CTD time at 8 m depth. For the other casts I used the time at which the CTD reached the seafloor and matched it with the corresponding ping where we see the seafloor on the WBAT. At BB2, the CTD did not reach the seafloor, thus I used an easily observable stop of the CTD on the upcast to match WBAT and CTD times.
 
-```{r tidy-WBAT-data}
-WBAT <- CTD %>%
-  dplyr::select(date, CTD_id, depth, cast, lat_mean, lon_mean) %>% # Match WBAT time to CTD time to get the depth
-  right_join(., WBAT_raw, by=c("date", "CTD_id")) #%>%
-# Select only downcast data for WBAT because it has less variability
-filter(cast=="downcast") %>%
-  # Use the depth to match with the downcast CTD data containing speed of sound and coefficients of absorption 
-  mutate(depth_round=ceiling(depth)) %>%
-  dplyr::select(-date, -depth, -cast) %>%
-  left_join(., CTD_1m_acoustic, by=c("CTD_id", "depth_round")) %>%
-  rename(depth=depth_round) %>%
+```{r combine-WBAT-CTD-depth}
+WBAT_time_corrected <- WBAT_raw %>%
+  dplyr::select(date_WBAT, station, cast_number, Ping_S, frequency, range, 
+                Sv_mean, NASC) %>%
+  # Fix dates
+  mutate(date = 
+           case_when(cast_number == 2 ~ date_WBAT - hours(4) + seconds(41),
+                     cast_number == 13 ~ date_WBAT - hours(4) + seconds(14),
+                     cast_number == 25 ~ date_WBAT + seconds(16),
+                     cast_number == 26 ~ date_WBAT + seconds(16),
+                     cast_number == 28 ~ date_WBAT + seconds(16),
+                     cast_number == 29 ~ date_WBAT + seconds(16),
+                     cast_number == 40 ~ date_WBAT - hours(4) + seconds(16))) %>%
+  # Combine CTD date at depth and WBAT date
+  left_join(., CTD_date_depth, by = c("cast_number", "date")) %>%
+  # Round depth
+  rename(depth_raw = depth) %>%
+  mutate(depth = floor(depth_raw)) %>%
+  # Reorder variables
+  dplyr::select(date_WBAT, date_start_CTD, station, cast_number, cast,
+                frequency, depth_raw, depth, range, Sv_mean, NASC)
+```
+
+Because the WBAT was mounted on a probe and collected data vertically, I corrected S~V~ for changes in speed of sound and absorption coefficients with depth. To do that, I create a CTD dataset with all the required variables.
+
+```{r CTD-sound-speed-abs-coef}
+# CTD with speed of sound and absorption coeffiecients
+CTD_Sv_correction <- CTD %>%
+    # Calculate speed of sound (m/s) and absorption coefficients (dB/m) at 38 and 333 kHz
+    mutate(sound_speed = 
+             swSoundSpeed(salinity = PSAL, temperature = TE90, pressure = PRES,
+                          longitude = lon, latitude = lat, eos = "gsw"),
+           abs38 = 
+             swSoundAbsorption(frequency = 38000, salinity = PSAL,
+                               temperature = TE90, pressure = PRES, pH = 8,
+                               formulation = "francois-garrison"),
+           abs333 = 
+             swSoundAbsorption(frequency = 333000, salinity = PSAL,
+                               temperature = TE90, pressure = PRES, pH = 8, 
+                               formulation = "francois-garrison")) %>%
+  # Keep only relevant variables
+  dplyr::select(date_start_CTD, station, cast_number, lat, lon, depth, 
+                sound_speed, abs38, abs333)
+```
+
+Then, I match that CTD dataset with the WBAT data and correct Sv.
+
+```{r Sv-correction-WBAT}
+WBAT <- WBAT_time_corrected %>%
+  # Combine WBAT and speed of sound and absorption coefficients
+  left_join(., CTD_Sv_correction, 
+            by = c("date_start_CTD", "station", "cast_number", "depth")) %>%
   # Correct Sv according to sound speed and absorption for every depth bin
-  mutate(Sv_corrected = case_when(frequency == 38 ~ sv_correction_fm(Sv = Sv_mean,
-                                                                     range = range,
-                                                                     f_nominal = 38,
-                                                                     f_start = 36, 
-                                                                     f_end = 45,
-                                                                     c_cal = 1450,
-                                                                     t_cal = 0.12351,
-                                                                     psi_cal = -12.5,
-                                                                     p_cal = 450,
-                                                                     abs_depth_cal = 300,
-                                                                     pH_cal = 8,
-                                                                     sal_cal = 34,
-                                                                     temp_cal = 0,
-                                                                     lat = lat_mean,
-                                                                     c_new = sound_speed, 
-                                                                     abs_new = abscoef_38),
-                                  frequency == 333 ~ sv_correction_fm(Sv = Sv_mean,
-                                                                      range = range,
-                                                                      f_nominal = 38,
-                                                                      f_start = 36, 
-                                                                      f_end = 45,
-                                                                      c_cal = 1450,
-                                                                      t_cal = 0.12351,
-                                                                      psi_cal = -12.5,
-                                                                      p_cal = 450,
-                                                                      abs_depth_cal = 300,
-                                                                      pH_cal = 8,
-                                                                      sal_cal = 34,
-                                                                      temp_cal = 0,
-                                                                      lat = lat_mean,
-                                                                      c_new = sound_speed, 
-                                                                      abs_new = abscoef_333))) %>%
-  dplyr::select(-sound_speed, -abscoef_38, -abscoef_333)
+  mutate(Sv_cor = 
+           case_when(frequency == 38 ~ 
+                       sv_depth_correction_fm(Sv = Sv_mean,
+                                              range = range,
+                                              f_nominal = 38,
+                                              f_start = 36, 
+                                              f_end = 45,
+                                              c_cal = 1450,
+                                              t_cal = 0.12351,
+                                              psi_cal = -12.5,
+                                              p_cal = 450,
+                                              abs_depth_cal = 300,
+                                              pH_cal = 8,
+                                              sal_cal = 34,
+                                              temp_cal = 0,
+                                              lat = lat,
+                                              c_new = sound_speed, 
+                                              abs_new = abs38),
+                     frequency == 333 ~ 
+                       sv_depth_correction_fm(Sv = Sv_mean,
+                                              range = range,
+                                              f_nominal = 38,
+                                              f_start = 36, 
+                                              f_end = 45,
+                                              c_cal = 1450,
+                                              t_cal = 0.12351,
+                                              psi_cal = -12.5,
+                                              p_cal = 450,
+                                              abs_depth_cal = 300,
+                                              pH_cal = 8,
+                                              sal_cal = 34,
+                                              temp_cal = 0,
+                                              lat = lat,
+                                              c_new = sound_speed, 
+                                              abs_new = abs333))) %>%
+  dplyr::select(-sound_speed, -abs38, -abs333, -depth_raw)
 ```
-
-Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded—4.00 m between 36-45 kHz and 1.75 m between 283-383 kHz. Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
-
-```{r map-CTD-locations, echo=FALSE, fig.align='center', fig.height=4, fig.width=9}
-WBAT_summary <- WBAT_raw %>%
-  group_by(CTD_id) %>%
-  summarise() %>%
-  ungroup() %>%
-  mutate(WBAT = T)
-# Map
-map_summary <- CTD_1m %>%
-  group_by(CTD_id) %>%
-  summarise(lat = mean(lat_mean), lon = mean(lon_mean)) %>%
-  ungroup() %>%
-  mutate(CTD = T) %>%
-  left_join(., WBAT_summary, by = c("CTD_id")) %>%
-  mutate(st_type = factor(case_when(CTD == T & WBAT == T ~ "CTD, UVP, WBAT",
-                                  CTD == T & is.na(WBAT) == T ~ "CTD, UVP"),
-                               levels=c("CTD, UVP", "CTD, UVP, WBAT"))) %>%
-  ggplot() + 
-  # Longitude lines
-  geom_segment(aes(x = -90, xend = -90, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -85, xend = -85, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -80, xend = -80, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -75, xend = -75, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -70, xend = -70, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -65, xend = -65, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -60, xend = -60, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  scale_x_continuous("Longitude (°E)", breaks = c(-85.1,-80,-75,-69.9), labels = c(-85,-80,-75,-70), expand = c(0,0)) +
-  # Latitude lines
-  geom_segment(aes(x = -120, xend = 0, y = 74, yend = 74), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 75, yend = 75), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 76, yend = 76), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 77, yend = 77), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 78, yend = 78), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 79, yend = 79), col = "grey90", size = 0.3, lty = 2) +
-  scale_y_continuous("Latitude (°N)", breaks = c(74,75.025,76.055,77.09,78.12), labels = seq(74,78,1), expand = c(0,0)) +
-  # Plot 500 m isobath
-  geom_contour(data = bathy, aes(x = lon, y = lat, z = depth), breaks = -500, size = 0.3, colour = "grey70", lty = 1) +
-  # Plot coastline and glaciers
-  geom_polygon(data = coast, aes(x = lon, y = lat, group = group), fill = "grey80", col = "transparent") +
-  # geom_polygon(data = glacier, aes(x = lon, y = lat, group = group), fill = "grey97") +
-  # geom_polygon(data = coast, aes(x = lon, y = lat, group = group), fill = "transparent", col = "grey30", size = 0.1) +
-  # Add labels
-  annotate("text", y = 76.95, x = -84, label = "Ellesmere Island", color = "grey30", fontface = "italic") +
-  annotate("text", y = 75.2, x = -83, label = "Devon Island", color = "grey30", fontface = "italic") +
-  annotate("text", y = 78.2, x = -68, label = "Greenland", color = "grey30", fontface = "italic") +
-  annotate("text", y = 78.65, x = -73.7, label = "Smith\nSound", color = "black", fontface = "italic") +
-  annotate("text", y = 76.2, x = -86.5, label = "Jones Sound", color = "black", fontface = "italic") +
-  annotate("text", y = 75, x = -73, label = "Baffin Bay", color = "black", fontface = "italic") +
-  # Plot stations
-  geom_point(aes(x = lon, y = lat, col = st_type), size = 2, alpha = 0.7) +
-  scale_color_manual(values=met.brewer(name = "Egypt", n = 2, type = "discrete")) +
-  # Change map projection
-  coord_map("azequidistant", ylim = c(74.5,78.8), xlim = c(-89,-68)) +
-  theme(axis.text = element_text(), axis.ticks = element_line(), legend.title = element_blank(),
-        legend.position = "top", panel.border = element_rect(fill = NA))
-# Photo CTD rosette
-img_path <- readPNG("data/photos/DSCF5960_rosette_downward.png")
-# Plot
-plot_grid(map_summary, ggdraw() + draw_image(img_path, scale = 0.9), labels = "AUTO", label_size = 9)
-```
-
-**Figure  1. A** Location of the stations in northern Baffin Bay where the CTD, UVP, and WBAT were deployed (coloured dots). The solid grey line represents the 500 m isobath. **B** WBAT with sideward facing transducers, UVP5. and UVP6 installed on the CTD rosette. 
 
 **FREQUENCY RESPONSES**
 
-## Zooplankton data
+## Underwater Vision Profiler 6 (UVP)
 
-- **UVP**
+The Underwater Vision Profiler 6 (UVP) was mounted on the CTD rosette and collected images throughout the water column. Pictures were sorted according to taxonomic composition using EcoTaxa (ref). 
+
+I load the entire UVP dataset.
+
+```{r load-UVP}
+# Load UVP data
+UVP_raw <- read_csv("data/UVP/plank_PC_values.csv", show_col_types = F)
+```
+
+Then, I tidy the UVP data and select for variables of interest
+
+```{r tidy-UVP}
+UVP <- UVP_raw %>%
+  # Rename variables to match other datasets
+  rename(cast_number = ctd_file) %>%
+  # Tidy variables
+  unite(date, date, time, sep = " ") %>%
+  mutate(date = ymd_hms(date),
+         cast_number = as.numeric(cast_number)) %>%
+  # Select variables of interest
+  dplyr::select(date, station, profile, cast_number, sampleid, lat, lon, ice, 
+                depth, depth_bin, watervolume, taxon, lineage)
+```
 
 ## Light data
 
 - **C-OPS**
-
-# Random thoughts
-
-- What would be the consequence on mesopelagic fish if there are more autumn blooms in the Arctic?
-
-# Appendix
-
-```{r supplementary-table-echosounder, echo=FALSE}
-# Create table
-data.frame(Instrument = c(rep("EK80",2), rep("WBAT",2)),
-           Transducer = c("ES38-7","ES120-7C","ES38-18DK", "ES333-7CDK"),
-           Beam = c(rep("Split",3),"Single"),
-           Mode = c("CW","CW","FM","FM"),
-           freq = c("38","120","36-45","283-383"),
-           power = c(2000,250,450,50),
-           pulse_length = c(1024,1024,2048,2048),
-           Ramping = c(rep("Fast",2),"?","?"),
-           ping_rate = c(rep("max",2), "0.5","0.5"),
-           filter_type = c("","","?","?"),
-           FM_mode = c("","","?","?") )%>%
-  rename("Frequency (kHz)" = freq,
-         "Power (W)" = power,
-         "Pulse length (μs)" = pulse_length,
-         "Ping rate (Hz)" = ping_rate,
-         "Filter type" = filter_type,
-         "FM mode" = FM_mode) %>%
-  kbl(align = "llccccccccc") %>% 
-  kable_classic(full_width = T, html_font = "Arial") %>%
-  row_spec(0,bold = T)
-```
-
-**Table S1.** Settings of the ship-borne echosounder (Simrad EK80) and acoustic probe (Simrad WBAT) used during the DarkEdge campaign in October 2021.
-

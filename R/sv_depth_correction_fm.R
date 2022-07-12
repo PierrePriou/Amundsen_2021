@@ -43,6 +43,8 @@ sv_depth_correction_fm <-
             c_new,
             abs_new) {
     
+    library(oce)
+    
     ## Set up constants 
     
     # Convert frequencies to Hz
@@ -50,11 +52,10 @@ sv_depth_correction_fm <-
     f_center <- mean(c(f_start, f_end)) * 10 ^ 3 # Center frequency (Hz)
     
     # Absorption coefficient calibration
-    a_cal <- oce::swSoundAbsorption(frequency = f_nominal, 
+    a_cal <- swSoundAbsorption(frequency = f_nominal, 
                                     salinity = sal_cal,
                                     temperature = temp_cal,
-                                    pressure = oce::gsw_p_from_z(abs_depth_cal * -1, 
-                                                                 lat), 
+                                    pressure = gsw_p_from_z(abs_depth_cal * -1, lat), 
                                     pH = pH_cal, 
                                     formulation = "francois-garrison") 
     

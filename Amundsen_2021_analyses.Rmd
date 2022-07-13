@@ -124,6 +124,9 @@ CTD <- CTD %>%
          SIGP = if_else(cast_number == 25 & is.na(SIGP) == T, SIGP_25, SIGP)) %>%
   # Remove CTD25 variables
   dplyr::select(-PRES_25, -TE90_25, -PSAL_25, -FLOR_25, -SIGT_25, -SIGP_25)
+
+# Remove CTD25
+rm(CTD25)
 ```
 
 
@@ -212,7 +215,7 @@ CTD_Sv_correction <- CTD %>%
                 sound_speed, abs38, abs333)
 ```
 
-Then, I match that CTD dataset with the WBAT data and correct Sv.
+Then, I match that CTD dataset with the WBAT data and correct Sv. 
 
 ```{r Sv-correction-WBAT}
 WBAT <- WBAT_time_corrected %>%
@@ -256,34 +259,58 @@ WBAT <- WBAT_time_corrected %>%
                                               c_new = sound_speed, 
                                               abs_new = abs333))) %>%
   dplyr::select(-sound_speed, -abs38, -abs333, -depth_raw)
+
+# Remove unused variables
+rm(WBAT_time_corrected)
 ```
 
 **FREQUENCY RESPONSES**
 
 ## Underwater Vision Profiler 6 (UVP)
 
-The Underwater Vision Profiler 6 (UVP) was mounted on the CTD rosette and collected images throughout the water column. Pictures were sorted according to taxonomic composition using EcoTaxa (ref). 
-
-I load the entire UVP dataset.
+The Underwater Vision Profiler 6 (UVP) was mounted on the CTD rosette and collected images throughout the water column. Pictures were sorted according to taxonomic composition using EcoTaxa (ref). I load the entire UVP dataset.
 
 ```{r load-UVP}
 # Load UVP data
 UVP_raw <- read_csv("data/UVP/plank_PC_values.csv", show_col_types = F)
 ```
 
-Then, I tidy the UVP data and select for variables of interest
+Then, I select for the relevant variables and bin data in 10 m.
 
 ```{r tidy-UVP}
 UVP <- UVP_raw %>%
   # Rename variables to match other datasets
-  rename(cast_number = ctd_file) %>%
+  rename(cast_number = ctd_file, 
+         depth_UVP = depth,
+         group = taxon) %>%
   # Tidy variables
-  unite(date, date, time, sep = " ") %>%
-  mutate(date = ymd_hms(date),
-         cast_number = as.numeric(cast_number)) %>%
+  unite(date_UVP, date, time, sep = " ") %>%
+  mutate(date_UVP = ymd_hms(date_UVP),
+         cast_number = as.numeric(cast_number),
+         taxa = 
+           case_when(str_detect(lineage, "Amphipoda") == T ~ "Amphipod",
+                     str_detect(lineage, "Annelida") == T ~ "Annelid",
+                     str_detect(lineage, "Appendicularia") == T ~ "Appendicularia",
+                     str_detect(lineage, "Chaetognatha") == T ~ "Chaetognath",
+                     str_detect(lineage, "Cnidaria") == T ~ "Cnidaria",
+                     str_detect(lineage, "Copepoda") == T ~ "Copepod",
+                     str_detect(lineage, "Ctenophora") == T ~ "Ctenophore",
+                     str_detect(lineage, "Eumalacostraca") == T ~ "Eumalacostraca",
+                     str_detect(lineage, "Limacinidae") == T ~ "Limacinidae",
+                     str_detect(lineage, "Ostracoda") == T ~ "Ostracoda",
+                     str_detect(lineage, "Salpida") == T ~ "Salp",
+                     str_detect(lineage, "Siphonophorae") == T ~ "Siphonophore",
+                     str_detect(lineage, "Rhizaria") == T ~ "Rhizaria")) %>%
   # Select variables of interest
-  dplyr::select(date, station, profile, cast_number, sampleid, lat, lon, ice, 
-                depth, depth_bin, watervolume, taxon, lineage)
+  dplyr::select(date_UVP, station, cast_number, ice, depth_UVP, group, lineage,
+                taxa) %>%
+  # Remove images with uncertain taxonomy
+  filter(is.na(taxa) == F) %>%
+  # Summarise data in 10 m bins
+  mutate(depth_round = plyr::round_any(depth_UVP, 10, floor)) %>%
+  group_by(station, cast_number, ice, depth_round, group, taxa) %>%
+  summarise(count = n()) %>%
+  ungroup() 
 ```
 
 ## Light data

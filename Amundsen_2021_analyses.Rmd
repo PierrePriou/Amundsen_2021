@@ -18,6 +18,7 @@ library(dtplyr)                   # Speed up code
 library(plotly)                   # Interactive plots
 library(oce)                      # Speed of sound and absorption coefs.
 library(cowplot)                  # Multiple plots
+library(lemon)                    # Facets
 library(rgdal)                    # Read shapefiles
 library(marmap)                   # Bathymetry data of the Arctic Ocean
 library(cmocean)                  # Colour palettes
@@ -162,7 +163,8 @@ WBAT_raw <- list.files("data/WBAT", pattern = "*.csv", full.names = T) %>%
          station = if_else(str_detect(station, "BB") == T, "BB2", station),
          CTD_id = str_extract(filename, pattern = "CTD[0-9]{2}"),
          CTD_id = as.numeric(str_remove(CTD_id, pattern = "CTD")),
-         date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second")) %>%
+         date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second"),
+         Frequency = factor(Frequency)) %>%
     rename(range = Layer_depth_min,
            frequency = Frequency,
            cast_number = CTD_id)
@@ -176,13 +178,13 @@ WBAT_time_corrected <- WBAT_raw %>%
                 Sv_mean, NASC) %>%
   # Fix dates
   mutate(date = 
-           case_when(cast_number == 2 ~ date_WBAT - hours(4) + seconds(41),
-                     cast_number == 13 ~ date_WBAT - hours(4) + seconds(14),
+           case_when(cast_number == 2 ~ date_WBAT - hours(4) + seconds(50),
+                     cast_number == 13 ~ date_WBAT - hours(4) + seconds(40),
                      cast_number == 25 ~ date_WBAT + seconds(16),
                      cast_number == 26 ~ date_WBAT + seconds(16),
                      cast_number == 28 ~ date_WBAT + seconds(16),
                      cast_number == 29 ~ date_WBAT + seconds(16),
-                     cast_number == 40 ~ date_WBAT - hours(4) + seconds(16))) %>%
+                     cast_number == 40 ~ date_WBAT - hours(4) + seconds(25))) %>%
   # Combine CTD date at depth and WBAT date
   left_join(., CTD_date_depth, by = c("cast_number", "date")) %>%
   # Round depth

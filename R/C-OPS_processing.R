@@ -27,14 +27,26 @@ for (i in file_list) {
     rename(wavelength = "...1",
            mean_EdZ_0m = "...2", 
            detection_levels = "...3")
+  # Extract Kz (attenuation coefficient at depth z)
+  kz_edz <- cops$KZ.EdZ.fitted %>%
+    as_tibble() %>%
+    # Extract depth
+    mutate(depth = as.numeric(rownames(cops$KZ.EdZ.fitted))) %>%
+    # Long format
+    pivot_longer(1:19, names_to = "wavelength", values_to = "Kz") %>%
+    # Convert wavelength to numeric
+    mutate(wavelength = as.numeric(wavelength)) 
   # Extract downwelling irradiance at depth
   edz_tmp <- cops$EdZ.fitted %>% 
     as_tibble() %>%
-    bind_cols(depth_tmp, .) %>%
-    pivot_longer(2:20, names_to = "wavelength", values_to = "EdZ") %>%
+    # Extract depth
+    mutate(depth = as.numeric(rownames(cops$EdZ.fitted))) %>%
+    # Long format
+    pivot_longer(1:19, names_to = "wavelength", values_to = "EdZ") %>%
     # Convert wavelength to numeric
     mutate(wavelength = as.numeric(wavelength)) %>%
-    # Combine Ed0 and EdZ_0m
+    # Combine Kz, Ed0 and EdZ_0m
+    left_join(., kz_edz, by = c("depth", "wavelength")) %>%
     left_join(., ed0_tmp, by = "wavelength") %>%
     left_join(., edz_0m_tmp, by = "wavelength") %>% 
     # Add metadata

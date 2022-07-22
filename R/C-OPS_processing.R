@@ -55,7 +55,7 @@ for (i in file_list) {
            cast_COPS = as.numeric(str_remove(
              str_extract(cops$file, "CAST_[0-9]{3}"), "CAST_"))) %>%
     # Create unique combination of cast and station
-    unite(COPS_ID, station, cast_COPS, sep = " ", remove = F) %>%
+    unite(COPS_ID, station, cast_COPS, sep = "_", remove = F) %>%
     dplyr::select(- cast_COPS)
   # Combine data
   COPS <- bind_rows(COPS, edz_tmp)

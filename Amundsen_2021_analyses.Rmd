@@ -22,6 +22,7 @@ library(lemon)                    # Facets
 library(rgdal)                    # Read shapefiles
 library(marmap)                   # Bathymetry data of the Arctic Ocean
 library(cmocean)                  # Colour palettes
+library(photobiology)             # Assign rgb colour to wavelength
 source("R/sv_depth_correction_fm.R")    # Correct Sv vertical profiles
 # Suppress summarise() warning
 options(dplyr.summarise.inform = F)
@@ -90,21 +91,20 @@ Select relevant CTD stations (2, 13, 25, 26, 28, 29, and 40).
 CTD <- CTD_raw %>%
   # Select data from leg 5
   filter(leg == 5) %>%
-  # Select CTD casts
-  filter(cast_number %in% c(2, 13, 25, 26, 28, 29, 40)) %>%
+  # # Select CTD casts
+  # filter(cast_number %in% c(2, 13, 25, 26, 28, 29, 40)) %>%
   # Select variables of interest
-  dplyr::select(station, cast_number, date, lat, lon, bottom_depth, depth_min, depth_max, PRES, TE90,
-                PSAL, SIGM, SPVA, VAIS, SIGT, POTM, SIGP, FRET, SVEL, ASAL, 
-                CONT, D_CT) %>% 
+  dplyr::select(station, cast_number, date, lat, lon, bottom_depth, depth_min,
+                depth_max, PRES, TE90, PSAL, SIGM, SIGT, SIGP) %>%
   # Rename variable
   rename(date_start_CTD = date) %>%
-  # Calculate depth
+  # Calculate depth from pressure
   mutate(depth = round(swDepth(pressure = PRES, latitude = lat))) %>% 
   # Summarise data per 1 m depth bin
   group_by(date_start_CTD, station, cast_number, lat, lon, bottom_depth,
            depth_min, depth_max, depth) %>%
   summarise_all(mean) %>%
-  ungroup()
+  ungroup() 
 ```
 
 Cast 25 is full of `NaNs` so I replace these values with the appropriate data that I processed myself. 
@@ -124,17 +124,32 @@ CTD <- CTD %>%
          SIGT = if_else(cast_number == 25 & is.na(SIGT) == T, SIGT_25, SIGT),
          SIGP = if_else(cast_number == 25 & is.na(SIGP) == T, SIGP_25, SIGP)) %>%
   # Remove CTD25 variables
-  dplyr::select(-PRES_25, -TE90_25, -PSAL_25, -FLOR_25, -SIGT_25, -SIGP_25)
+  dplyr::select(-PRES_25, -TE90_25, -PSAL_25, -FLOR_25, -SIGT_25, -SIGP_25) %>%
+  # Convert station to factor
+  mutate(station = factor(station))
 
 # Remove CTD25
 rm(CTD25)
 ```
 
+Fluorescence was also absent from the processed data so I calculated the mean fluorescence per 1 m depth bin myself and add them to the CTD dataset.
 
-Since there was no pressure sensor on the WBAT, I need to find the depth at which data was collected. To do that I match the WBAT date to the date of unprocessed CTD data. Thus, I use the unprocessed CTD data and extract the mean depth of the CTD at each second (see `R\CTD_date_depth.R` for more details on this data processing).
+```{r CTD-add-fluo}
+# Load fluorescence data
+fluo <- read_csv("data/CTD/CTD_fluorescence_1m.csv", show_col_types = F)
 
-```{r CTD-date-depth-loading}
-CTD_date_depth <- read_csv("data/CTD/CTD_date_depth.csv", show_col_types = F)
+CTD <- CTD %>%
+  # Combine fluorescence to CTD
+  left_join(., fluo, by = c("cast_number", "depth")) %>% 
+  # Rename variables
+  rename(pres = PRES,
+         te90 = TE90,
+         psal = PSAL) %>%
+  # Remove unused variables
+  dplyr::select(-SIGM, -SIGT, -SIGP)
+
+# Remove fluorescence data
+rm(fluo)
 ```
 
 ```{r plot-turning-points}
@@ -161,6 +176,7 @@ WBAT_raw <- list.files("data/WBAT", pattern = "*.csv", full.names = T) %>%
   unite(date_WBAT, Date_S, Time_S, sep = " ", remove = F) %>%
   mutate(station = str_extract(filename, pattern = "[A-Z]{2}[0-9]{3}"),
          station = if_else(str_detect(station, "BB") == T, "BB2", station),
+         station = factor(station),
          CTD_id = str_extract(filename, pattern = "CTD[0-9]{2}"),
          CTD_id = as.numeric(str_remove(CTD_id, pattern = "CTD")),
          date_WBAT = round_date(ymd_hms(date_WBAT, tz = "UTC"), "second"),
@@ -170,9 +186,15 @@ WBAT_raw <- list.files("data/WBAT", pattern = "*.csv", full.names = T) %>%
            cast_number = CTD_id)
 ```
 
-The WBAT was activated with a pressure switch at 8 m depth. This switch malfunctioned on October 18^th^. Therefore, for CTD casts 2 and 13 I used the time of the first recorded ping to match CTD time at 8 m depth. For the other casts I used the time at which the CTD reached the seafloor and matched it with the corresponding ping where we see the seafloor on the WBAT. At BB2, the CTD did not reach the seafloor, thus I used an easily observable stop of the CTD on the upcast to match WBAT and CTD times.
+For CTD casts 2 and 13, the WBAT was activated with a pressure switch at 8 m depth. However, this switch malfunctioned on October 18^th^. Thus, before deploying the WBAT we synchronized the WBAT and CTD clocks manually. We extracted the mean depth at each second from raw CTD measurements (see `R\CTD_date_depth.R` for more details) and match them to the WBAT time. 
+
+To verify that the calculation of the WBAT depth was correct, we compared the WBAT S~V~ profile at 38 kHz with profiles of the EK80 from the same station. If there was a mismatch in depth, we adjusted the WBAT depth manually. 
 
 ```{r combine-WBAT-CTD-depth}
+# Load CTD depth
+CTD_date_depth <- read_csv("data/CTD/CTD_date_depth.csv", show_col_types = F)
+
+# Correct WBAT time
 WBAT_time_corrected <- WBAT_raw %>%
   dplyr::select(date_WBAT, station, cast_number, Ping_S, frequency, range, 
                 Sv_mean, NASC) %>%
@@ -193,24 +215,27 @@ WBAT_time_corrected <- WBAT_raw %>%
   # Reorder variables
   dplyr::select(date_WBAT, date_start_CTD, station, cast_number, cast,
                 frequency, depth_raw, depth, range, Sv_mean, NASC)
+
+# Remove CTD date depth data
+rm(CTD_date_depth)
 ```
 
 Because the WBAT was mounted on a probe and collected data vertically, I corrected S~V~ for changes in speed of sound and absorption coefficients with depth. To do that, I create a CTD dataset with all the required variables.
 
 ```{r CTD-sound-speed-abs-coef}
-# CTD with speed of sound and absorption coeffiecients
+# CTD with speed of sound and absorption coefficients
 CTD_Sv_correction <- CTD %>%
     # Calculate speed of sound (m/s) and absorption coefficients (dB/m) at 38 and 333 kHz
     mutate(sound_speed = 
-             swSoundSpeed(salinity = PSAL, temperature = TE90, pressure = PRES,
+             swSoundSpeed(salinity = psal, temperature = te90, pressure = pres,
                           longitude = lon, latitude = lat, eos = "gsw"),
            abs38 = 
-             swSoundAbsorption(frequency = 38000, salinity = PSAL,
-                               temperature = TE90, pressure = PRES, pH = 8,
+             swSoundAbsorption(frequency = 38000, salinity = psal,
+                               temperature = te90, pressure = pres, pH = 8,
                                formulation = "francois-garrison"),
            abs333 = 
-             swSoundAbsorption(frequency = 333000, salinity = PSAL,
-                               temperature = TE90, pressure = PRES, pH = 8, 
+             swSoundAbsorption(frequency = 333000, salinity = psal,
+                               temperature = te90, pressure = pres, pH = 8, 
                                formulation = "francois-garrison")) %>%
   # Keep only relevant variables
   dplyr::select(date_start_CTD, station, cast_number, lat, lon, depth, 
@@ -262,8 +287,8 @@ WBAT <- WBAT_time_corrected %>%
                                               abs_new = abs333))) %>%
   dplyr::select(-sound_speed, -abs38, -abs333, -depth_raw)
 
-# Remove unused variables
-rm(WBAT_time_corrected)
+# Remove unused data
+rm(WBAT_time_corrected, CTD_Sv_correction)
 ```
 
 **FREQUENCY RESPONSES**
@@ -288,6 +313,7 @@ UVP <- UVP_raw %>%
   # Tidy variables
   unite(date_UVP, date, time, sep = " ") %>%
   mutate(date_UVP = ymd_hms(date_UVP),
+         station = factor(station),
          cast_number = as.numeric(cast_number),
          taxa = 
            case_when(str_detect(lineage, "Amphipoda") == T ~ "Amphipod",
@@ -317,4 +343,96 @@ UVP <- UVP_raw %>%
 
 ## Light data
 
-- **C-OPS**
+A Compact Optical Profiling System (C-OPS) equipped with a MPE sensor was used to collect irradiance profiles through the water column. Profiles were taken around noon with the C-OPS free falling down to ca. 100 m depth (Table 1). The instrument was deployed from the bow to avoid potential shading of the sensor by the ship. 
+
+```{r COPS-loading}
+COPS_raw <- read_csv("data/C-OPS/C-OPS_processed.csv", show_col_types = F)
+```
+
+At each station, three replicates were collected. 
+
+```{r COPS-tidying}
+COPS <- COPS_raw %>%
+  # Select stations of interest
+  filter(station %in% c("DE110", "DE320", "DE420")) %>%
+  # Fix variable type
+  mutate(station = factor(station),
+         COPS_ID = factor(COPS_ID))
+```
+
+To extrapolate irradiance at the depth of the DSL I need to use the appropriate coefficient of extinction (Kz) (Figure 2). 
+
+```{r plot-COPS-fluo, fig.width=10, fig.height=8}
+# Combine fluo and CTD
+COPS_fluo <- COPS %>%
+  # Select stations of interest
+  filter(station %in% c("DE110", "DE320", "DE420") & 
+           between(wavelength, 400, 700)) %>%
+  # Calculate mean Kz and EdZ per 1 m depth bin to match CTD resolution
+  mutate(depth = round(depth)) %>%
+  unite(ID, COPS_ID, wavelength, sep = "_", remove = F) %>%
+  group_by(station, depth, ID, wavelength) %>%
+  summarise(Kz = mean(Kz),
+            EdZ = mean(EdZ)) %>%
+  ungroup() %>%
+  # Add CTD data
+  left_join(., CTD, by = c("station", "depth")) %>%
+  dplyr::select(station, ID, depth, wavelength, EdZ, Kz, fluo) 
+
+# Color scale for EdZ and Kz
+col_pal <- w_length2rgb(c(412, 443, 465, 490, 510, 532, 555, 560, 589, 625,
+                          665, 683, 694)) %>% 
+  as_tibble() %>%
+  as.matrix()
+
+# Plot EdZ
+p_EdZ <- COPS_fluo %>%
+  filter(is.na(EdZ) == F) %>%
+  ggplot() +
+  geom_path(aes(x = EdZ, y = depth, col = factor(wavelength), group = ID),
+            alpha = 0.5) +
+  scale_x_log10(
+    "Ed 400-700 nm", 
+    breaks = scales::trans_breaks("log10", function(x) 10 ^ x),
+    labels = scales::trans_format("log10", scales::math_format(10 ^ .x))) +
+  annotation_logticks(sides = "b") +
+  scale_y_reverse() +
+  scale_color_manual(values = col_pal) +
+  facet_rep_wrap(~ station, scales = "free_y", ncol = 1) + 
+  theme(legend.position = "none")
+
+# Plot Kz
+p_Kz <- COPS_fluo %>%
+  filter(is.na(Kz) == F) %>%
+  ggplot() +
+  geom_path(aes(x = Kz, y = depth, col = factor(wavelength), group = ID), 
+            alpha = 0.5) +
+  scale_x_continuous("Kz 400-700 nm") +
+  scale_y_reverse() +
+  scale_color_manual(values = col_pal) +
+  facet_rep_wrap(~ station, scales = "free_y", ncol = 1) + 
+  theme(legend.position = "none")
+
+# Plot fluo
+p_fluo <- CTD %>%
+  filter(cast_number %in% c(2, 13, 25) & fluo < 0.35) %>%
+  mutate(ymax_box = case_when(station == "DE110" ~ 38,
+                              station == "DE320" ~ 100,
+                              station == "DE420" ~ 96)) %>%
+  ggplot() +
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = ymax_box),
+            col = "red", fill = NA, alpha = 0.05, lty = 2) +
+  geom_path(aes(x = fluo, y = depth)) +
+  scale_x_continuous("Fluorescence (FLU)") +
+  scale_y_reverse(breaks = seq(0, 2000, 100)) +
+  facet_rep_wrap(~ station, scales = "free_y", ncol = 1)
+
+# Combine plots
+plot_grid(p_EdZ, p_Kz, p_fluo, align = "hv", axis = "tblr", ncol = 3, 
+          labels = "auto", label_size = 9, label_x = 0.1)
+
+# Remove unused data
+rm(p_EdZ, p_Kz, p_fluo, COPS_fluo, col_pal)
+```
+
+Figure 2. Vertical profile of (a) downwelling irradiance (Ed in µW cm^-2^ nm^-1^) and (b) coefficient of extinction (Kz in m^-1^) between 400 and 700 nm (colored lines), and (c) fluorescence (arbitrary units) at each station. The dashed red rectangles in (c) indicate the depth ranges where light data are available. Note the different y-axis scale for (c) the fluorescence. 

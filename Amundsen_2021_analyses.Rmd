@@ -12,20 +12,22 @@ output:
 
 ```{r r-setup, message=FALSE}
 # Load packages
-library(tidyverse)                # Tidy code
-library(lubridate)                # Date handling
-library(dtplyr)                   # Speed up code
-library(plotly)                   # Interactive plots
-library(oce)                      # Speed of sound and absorption coefs.
-library(cowplot)                  # Multiple plots
-library(lemon)                    # Facets
-library(rgdal)                    # Read shapefiles
-library(marmap)                   # Bathymetry data of the Arctic Ocean
-library(cmocean)                  # Colour palettes
-library(photobiology)             # Assign rgb colour to wavelength
-source("R/sv_depth_correction_fm.R")    # Correct Sv vertical profiles
+library(tidyverse)    # Tidy code
+library(lubridate)    # Date handling
+library(dtplyr)       # Speed up code
+library(plotly)       # Interactive plots
+library(oce)          # Speed of sound and absorption coefs.
+library(cowplot)      # Multiple plots
+library(lemon)        # Facets
+library(rgdal)        # Read shapefiles
+library(marmap)       # Bathymetry data of the Arctic Ocean
+library(cmocean)      # Colour palettes
+library(photobiology) # Assign rgb colour to wavelength
+source("R/sv_depth_correction_fm.R")  # Correct Sv vertical profiles
+
 # Suppress summarise() warning
 options(dplyr.summarise.inform = F)
+
 # Theme for figures
 theme_set(theme_bw())
 theme_update(panel.grid = element_blank(), 
@@ -68,13 +70,62 @@ coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
   fortify() %>%
   rename(lon = long,
          region = id)
-# glacier <- readOGR("data/bathy/ne_10m_glaciated_areas.shp", verbose = F) %>% # Glaciers
-#   fortify() %>%
-#   rename(lon = long,
-#          region = id)
 ```
 
 The CCGS *Amundsen* surveyed northern Baffin Bay between between October 12 and 27, 2021 (Figure 1) during the DarkEdge campaign. We deployed our instruments at three stations, north of Coburg Island, in Smith Sound, and Jones Sound in varying sea ice conditions (Figure 1).
+
+```{r map-area, cache=TRUE}
+tibble(lat = c(72.7491, 75.9631, 76.0355, 78.1672),
+       lon = c(-67.0011, -85.5952, -77.2374, -74.8258),
+       station = c("BB2", "DE420", "DE110", "DE320")) %>%
+  # Map
+  ggplot() +
+  # Bathymetry
+  geom_tile(data = filter(bathy, depth <= 20),
+            aes(x = lon, y = lat, fill = depth),
+            alpha = 0.7) +
+  scale_fill_cmocean("Depth (m)", name = "deep", discrete = F, direction = -1) +
+  # Coastlines
+  geom_polygon(data = coast, aes(x = lon, y = lat, group = group),
+               fill = "grey45") +
+  # Longitude lines
+  geom_segment(aes(x = -90, xend = -90, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -85, xend = -85, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -80, xend = -80, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -75, xend = -75, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -70, xend = -70, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -65, xend = -65, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -60, xend = -60, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
+  scale_x_continuous("Longitude (°E)", 
+                     breaks = c(-85.12, -80.02, -75, -70, -64.78), 
+                     labels = seq(-85, -65, 5)) +
+  # Latitude lines
+  geom_segment(aes(x = -120, xend = 0, y = 71, yend = 71), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 72, yend = 72), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 73, yend = 73), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 74, yend = 74), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 75, yend = 75), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 76, yend = 76), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 77, yend = 77), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 78, yend = 78), col = "grey90", size = 0.3, lty = 2) +
+  geom_segment(aes(x = -120, xend = 0, y = 79, yend = 79), col = "grey90", size = 0.3, lty = 2) +
+  scale_y_continuous("Latitude (°N)",
+                     breaks = c(71.01, 72.05, 73.09, 74.15, 75.2, 76.25, 77.32, 78.4), 
+                     labels = seq(71, 78, 1)) +
+  # Labels
+  annotate("text", y = 77, x = -84, label = "Ellesmere Isl.", color = "grey20", fontface = "italic") +
+  annotate("text", y = 75.2, x = -84, label = "Devon Isl.", color = "grey20", fontface = "italic") +
+  annotate("text", y = 78, x = -63, label = "Greenland", color = "grey20", fontface = "italic") +
+  annotate("text", y = 71.2, x = -80, label = "Baffin Isl.", color = "grey20", fontface = "italic") +
+  # Stations
+  geom_point(aes(x = lon, y = lat), col = "darkorange", size = 3) + 
+  geom_text(aes(x = lon, y = lat, label = station), col = "black", hjust = -0.1, vjust = -0.5) + 
+  # Change map projection
+  coord_map("azequidistant", ylim = c(70.8, 78.5), xlim = c(-86, -65)) +
+  theme(panel.border = element_rect(fill = "transparent"))
+```
+
+Figure 1. Map of northern Baffin Bay with locations of sampling stations (orange circles).
 
 ## Environmental data
 
@@ -152,7 +203,7 @@ CTD <- CTD %>%
 rm(fluo)
 ```
 
-```{r plot-turning-points}
+```{r plot-turning-points, eval=FALSE, include=FALSE}
 # ggplotly(CTD_date_depth %>% 
 #   # filter(!cast_number %in% c(2, 13)) %>%
 #   filter(cast_number == 2) %>%

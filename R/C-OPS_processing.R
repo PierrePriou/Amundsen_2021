@@ -20,12 +20,12 @@ for (i in file_list) {
   ed0_tmp <- bind_cols(cops$Ed0.waves, cops$Ed0.0p) %>% 
     as_tibble() %>%
     rename(wavelength = "...1",
-           mean_Ed0 = "...2")
+           mean_ed0 = "...2")
   # Extract mean downwelling irradiance below surface (Ed0.0p) and detection levels
   edz_0m_tmp <- bind_cols(cops$EdZ.waves, cops$EdZ.0m, cops$EdZ.detection.limit) %>% 
     as_tibble() %>%
     rename(wavelength = "...1",
-           mean_EdZ_0m = "...2", 
+           mean_edz_0m = "...2", 
            detection_levels = "...3")
   # Extract Kz (attenuation coefficient at depth z)
   kz_edz <- cops$KZ.EdZ.fitted %>%
@@ -33,7 +33,7 @@ for (i in file_list) {
     # Extract depth
     mutate(depth = as.numeric(rownames(cops$KZ.EdZ.fitted))) %>%
     # Long format
-    pivot_longer(1:19, names_to = "wavelength", values_to = "Kz") %>%
+    pivot_longer(1:19, names_to = "wavelength", values_to = "kz") %>%
     # Convert wavelength to numeric
     mutate(wavelength = as.numeric(wavelength)) 
   # Extract downwelling irradiance at depth
@@ -42,7 +42,7 @@ for (i in file_list) {
     # Extract depth
     mutate(depth = as.numeric(rownames(cops$EdZ.fitted))) %>%
     # Long format
-    pivot_longer(1:19, names_to = "wavelength", values_to = "EdZ") %>%
+    pivot_longer(1:19, names_to = "wavelength", values_to = "edz") %>%
     # Convert wavelength to numeric
     mutate(wavelength = as.numeric(wavelength)) %>%
     # Combine Kz, Ed0 and EdZ_0m
@@ -69,8 +69,8 @@ COPS %>%
   # Select data at 490 nm
   filter(wavelength == 490) %>%
   # Plot
-  ggplot(aes(x = EdZ, y = depth, col = COPS_ID)) +
+  ggplot(aes(x = edz, y = depth, col = COPS_ID)) +
   geom_point(alpha = 0.2) +
-  scale_x_continuous("Log10(EdZ) @490 nm (µW cm-2 nm-1)", trans = "log10") +
+  scale_x_continuous("Log10(Edz) @490 nm (µW cm-2 nm-1)", trans = "log10") +
   scale_y_reverse() + 
   facet_wrap(~ station, scales = "free")

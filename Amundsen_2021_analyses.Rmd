@@ -353,43 +353,41 @@ At each station, three replicates were collected.
 
 ```{r COPS-tidying}
 COPS <- COPS_raw %>%
-  # Select stations of interest
-  filter(station %in% c("DE110", "DE320", "DE420")) %>%
+  # Select stations and wavelengths of interest
+  filter(station %in% c("DE110", "DE320", "DE420") &
+           between(wavelength, 400, 690)) %>%
   # Fix variable type
   mutate(station = factor(station),
-         COPS_ID = factor(COPS_ID))
+         COPS_ID = factor(COPS_ID)) %>%
+  # Calculate mean kz and edz per 1 m depth bin to match CTD resolution
+  mutate(depth = round(depth)) %>%
+  unite(ID, COPS_ID, wavelength, sep = "_", remove = F) %>%
+  group_by(station, COPS_ID, ID, depth, wavelength, detection_levels, mean_edz_0m) %>%
+  summarise(kz = mean(kz, na.rm = T),
+            edz = mean(edz, na.rm = T)) %>%
+  ungroup()
 ```
 
-To extrapolate irradiance at the depth of the DSL I need to use the appropriate coefficient of extinction (Kz) (Figure 2). 
+To extrapolate irradiance at the depth of the DSL I need to use the appropriate coefficient of extinction (kz) (Figure 2). 
 
 ```{r plot-COPS-fluo, fig.width=10, fig.height=8}
 # Combine fluo and CTD
 COPS_fluo <- COPS %>%
-  # Select stations of interest
-  filter(station %in% c("DE110", "DE320", "DE420") & 
-           between(wavelength, 400, 700)) %>%
-  # Calculate mean Kz and EdZ per 1 m depth bin to match CTD resolution
-  mutate(depth = round(depth)) %>%
-  unite(ID, COPS_ID, wavelength, sep = "_", remove = F) %>%
-  group_by(station, depth, ID, wavelength) %>%
-  summarise(Kz = mean(Kz),
-            EdZ = mean(EdZ)) %>%
-  ungroup() %>%
   # Add CTD data
   left_join(., CTD, by = c("station", "depth")) %>%
-  dplyr::select(station, ID, depth, wavelength, EdZ, Kz, fluo) 
+  dplyr::select(station, ID, depth, wavelength, edz, kz, fluo) 
 
-# Color scale for EdZ and Kz
-col_pal <- w_length2rgb(c(412, 443, 465, 490, 510, 532, 555, 560, 589, 625,
-                          665, 683, 694)) %>% 
+# Color scale for edz and kz
+col_pal <- w_length2rgb(c(412, 443, 465, 490, 510, 532, 555, 560, 589,
+                          625, 665, 683)) %>% 
   as_tibble() %>%
   as.matrix()
 
-# Plot EdZ
-p_EdZ <- COPS_fluo %>%
-  filter(is.na(EdZ) == F) %>%
+# Plot edz
+p_edz <- COPS_fluo %>%
+  filter(is.na(edz) == F) %>%
   ggplot() +
-  geom_path(aes(x = EdZ, y = depth, col = factor(wavelength), group = ID),
+  geom_path(aes(x = edz, y = depth, col = factor(wavelength), group = ID),
             alpha = 0.5) +
   scale_x_log10(
     "Ed 400-700 nm", 
@@ -401,13 +399,13 @@ p_EdZ <- COPS_fluo %>%
   facet_rep_wrap(~ station, scales = "free_y", ncol = 1) + 
   theme(legend.position = "none")
 
-# Plot Kz
-p_Kz <- COPS_fluo %>%
-  filter(is.na(Kz) == F) %>%
+# Plot kz
+p_kz <- COPS_fluo %>%
+  filter(is.na(kz) == F) %>%
   ggplot() +
-  geom_path(aes(x = Kz, y = depth, col = factor(wavelength), group = ID), 
+  geom_path(aes(x = kz, y = depth, col = factor(wavelength), group = ID), 
             alpha = 0.5) +
-  scale_x_continuous("Kz 400-700 nm") +
+  scale_x_continuous("kz 400-700 nm") +
   scale_y_reverse() +
   scale_color_manual(values = col_pal) +
   facet_rep_wrap(~ station, scales = "free_y", ncol = 1) + 
@@ -428,11 +426,70 @@ p_fluo <- CTD %>%
   facet_rep_wrap(~ station, scales = "free_y", ncol = 1)
 
 # Combine plots
-plot_grid(p_EdZ, p_Kz, p_fluo, align = "hv", axis = "tblr", ncol = 3, 
+plot_grid(p_edz, p_kz, p_fluo, align = "hv", axis = "tblr", ncol = 3, 
           labels = "auto", label_size = 9, label_x = 0.1)
 
 # Remove unused data
-rm(p_EdZ, p_Kz, p_fluo, COPS_fluo, col_pal)
+rm(p_edz, p_kz, p_fluo, COPS_fluo, col_pal)
 ```
 
-Figure 2. Vertical profile of (a) downwelling irradiance (Ed in µW cm^-2^ nm^-1^) and (b) coefficient of extinction (Kz in m^-1^) between 400 and 700 nm (colored lines), and (c) fluorescence (arbitrary units) at each station. The dashed red rectangles in (c) indicate the depth ranges where light data are available. Note the different y-axis scale for (c) the fluorescence. 
+Figure 2. Vertical profile of (a) downwelling irradiance (Ed in µW cm^-2^ nm^-1^) and (b) coefficient of extinction (kz in m^-1^) between 400 and 700 nm (colored lines), and (c) fluorescence (arbitrary units) at each station. The dashed red rectangles in (c) indicate the depth ranges where light data are available. Note the different y-axis scale for (c) the fluorescence. 
+
+For each wavelength, we calculated the mean kz (k~mean~) of the last 5 m of the profile. To extrapolate irradiance at mesopelagic depth, we used both k~mean~ and the deepest kz (k~max~) available at each wavelength. 
+
+```{r kz-calulation}
+# Mean kz over the last 5 m
+kz_mean <- COPS %>% 
+  # Remove NAs
+  filter(is.na(kz) == F) %>%
+  # Find last 5 m of each wavelength at each station
+  group_by(station, COPS_ID, ID, wavelength) %>%
+  mutate(keep = if_else(max(depth) - depth <= 5, T, F)) %>%
+  filter(keep == T) %>%
+  summarise(kz_mean = mean(kz)) %>%
+  ungroup() %>%
+  # Keep relevant variables
+  dplyr::select(station, COPS_ID, ID, wavelength, kz_mean)
+
+# kz at max depth
+kz_max_depth <- COPS %>% 
+  # Remove NAs
+  filter(is.na(kz) == F) %>%
+  # Find last 5 m of each wavelength at each station
+  group_by(station, COPS_ID, ID, wavelength) %>%
+  mutate(keep = if_else(max(depth) == depth, T, F)) %>%
+  filter(keep == T) %>%
+  rename(kz_max_depth = kz) %>%
+  ungroup() %>%
+  # Keep relevant variables
+  dplyr::select(station, COPS_ID, ID, wavelength, kz_max_depth)
+```
+
+We extrapolated the ambient irradiance Ed~z~ down to the seafloor using the following equation:
+$$Ed_{z} = Ed_{0} . e ^ {-k . z}$$
+
+where Ed~z~ is the downwelling irradiance at depth z (in µW cm^-2^ nm^-1^), Ed~0~ the downwelling irradiance just below the surface in (µW cm^-2^ nm^-1^), k is either the k~mean~ or k~max~ (in m^-1^), and z is the depth (in m).
+
+```{r light-extratpolation}
+COPS_extra <- COPS %>%
+  # Complete dataset to 602 m
+  group_by(station, COPS_ID, ID, wavelength, mean_edz_0m) %>%
+  complete(depth = seq(0, 602, 1)) %>%
+  ungroup() %>%
+  # Remove data below seafloor
+  mutate(remove = case_when(station == "DE110" & depth > 260 ~ T,
+                            station == "DE320" & depth > 575 ~ T)) %>%
+  filter(is.na(remove) == T) %>%
+  dplyr::select(-remove) %>%
+  # Add kz mean and kz at max depth
+  left_join(., kz_mean, by = c("station", "COPS_ID", "ID", "wavelength")) %>%
+  left_join(., kz_max_depth, by = c("station", "COPS_ID", "ID", "wavelength")) %>%
+  # Extrapolate edz
+  mutate(edz_kz_mean = mean_edz_0m * exp(- kz_mean * depth),
+         edz_kz_max = mean_edz_0m * exp(- kz_max_depth * depth))
+
+# Remove unused data
+rm(kz_max_depth, kz_mean)
+```
+
+

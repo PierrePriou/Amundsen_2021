@@ -216,8 +216,6 @@ rm(fluo)
 
 ## Wideband Acoustic Transceiver (WBAT)
 
-### Data processing 
-
 Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette. The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz. Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded (5.00 m). Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
 
 ```{r load-WBAT-data}
@@ -345,10 +343,7 @@ WBAT <- WBAT_time_corrected %>%
 rm(WBAT_time_corrected, CTD_Sv_correction)
 ```
 
-### Quality check
-
 To check the signal to noise ratio (over the range) we used the WBAT profile of station BB2 because there was some sections of the water column with very few scatterers.
-
 
 ```{r plot-SD-Sv, fig.width=7, fig.height=9}
 WBAT %>%
@@ -394,29 +389,29 @@ UVP <- UVP_raw %>%
          station = factor(station),
          cast_number = as.numeric(cast_number),
          taxa = 
-           case_when(str_detect(lineage, "Amphipoda") == T ~ "Amphipod",
-                     str_detect(lineage, "Annelida") == T ~ "Annelid",
-                     str_detect(lineage, "Appendicularia") == T ~ "Appendicularia",
-                     str_detect(lineage, "Chaetognatha") == T ~ "Chaetognath",
-                     str_detect(lineage, "Cnidaria") == T ~ "Cnidaria",
-                     str_detect(lineage, "Copepoda") == T ~ "Copepod",
-                     str_detect(lineage, "Ctenophora") == T ~ "Ctenophore",
-                     str_detect(lineage, "Eumalacostraca") == T ~ "Eumalacostraca",
-                     str_detect(lineage, "Limacinidae") == T ~ "Limacinidae",
-                     str_detect(lineage, "Ostracoda") == T ~ "Ostracoda",
-                     str_detect(lineage, "Salpida") == T ~ "Salp",
-                     str_detect(lineage, "Siphonophorae") == T ~ "Siphonophore",
-                     str_detect(lineage, "Rhizaria") == T ~ "Rhizaria")) %>%
+           case_when(str_detect(lineage, "Amphipoda") == T ~ "Amp",
+                     str_detect(lineage, "Annelida") == T ~ "Ann",
+                     str_detect(lineage, "Appendicularia") == T ~ "App",
+                     str_detect(lineage, "Chaetognatha") == T ~ "Cha",
+                     str_detect(lineage, "Cnidaria") == T ~ "Cni",
+                     str_detect(lineage, "Copepoda") == T ~ "Cop",
+                     str_detect(lineage, "Ctenophora") == T ~ "Cte",
+                     str_detect(lineage, "Eumalacostraca") == T ~ "Eum",
+                     str_detect(lineage, "Limacinidae") == T ~ "Lim",
+                     str_detect(lineage, "Ostracoda") == T ~ "Ost",
+                     str_detect(lineage, "Salpida") == T ~ "Sal",
+                     str_detect(lineage, "Siphonophorae") == T ~ "Sip",
+                     str_detect(lineage, "Rhizaria") == T ~ "Rhi")) %>%
   # Select variables of interest
   dplyr::select(date_UVP, station, cast_number, ice, depth_UVP, group, lineage,
                 taxa) %>%
   # Remove images with uncertain taxonomy
-  filter(is.na(taxa) == F) #%>%
-  # Summarise data in 10 m bins
-  # mutate(depth_round = plyr::round_any(depth_UVP, 10, floor)) %>%
-  # group_by(station, cast_number, ice, depth_round, group, taxa) %>%
-  # summarise(count = n()) %>%
-  # ungroup() 
+  filter(is.na(taxa) == F) %>%
+  # Summarise data in 5 m bins
+  mutate(depth_round = plyr::round_any(depth_UVP, 5, floor)) %>%
+  group_by(station, cast_number, ice, depth_round, group, taxa) %>%
+  summarise(count = n()) %>%
+  ungroup()
 ```
 
 ## Light data
@@ -574,18 +569,20 @@ rm(kz_max_depth, kz_mean)
 
 ## DE110
 
-```{r plots-DE110}
+```{r plots-DE110, fig.width=12, fig.height=5}
+# Coefficients for scaling salinity so that it can be plotted with temperature
 b <- diff(c(-2, 2))/diff(c(30, 35))
 a <- -2 - b * 30
 # CTD plot
-CTD %>%
+p_CTD <- CTD %>%
   filter(cast_number == 2) %>%
   ggplot() +
+  # Temperature
   geom_path(aes(x = te90, y = depth, group = cast_number), col = "red", na.rm = T) +
+  # Salinity
   geom_path(aes(x = a + psal * b, y = depth, group = cast_number), col = "blue", na.rm = T) +
   scale_x_continuous("temp", breaks = seq(-2, 10, 0.5),
-                     sec.axis = sec_axis(~ (. - a)/b, name = "sal", breaks = seq(0, 40, 0.5))) +
-  # geom_path(aes(x = fluo, y = depth, group = cast_number), col = "green") +
+                     sec.axis = sec_axis(~ (. - a)/b, name = "sal", breaks = seq(0, 40, 1))) +
   scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
   theme(axis.line.x.bottom = element_line(color = "red"), 
         axis.ticks.x.bottom = element_line(color = "red"),
@@ -595,41 +592,68 @@ CTD %>%
         axis.ticks.x.top = element_line(color = "blue"),
         axis.text.x.top = element_text(color = "blue"), 
         axis.title.x.top = element_text(color = "blue"))
+
+# Fluorescence
+p_fluo <- CTD %>%
+  filter(cast_number == 2) %>%
+  ggplot() +
+  geom_path(aes(x = fluo, y = depth, group = cast_number), col = "darkgreen", na.rm = T) +
+  scale_x_continuous("Fluo (FLU)") +
+  scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
+  theme(axis.title.y = element_blank())
+
 # COPS
-COPS_extra %>%
+p_COPS <- COPS_extra %>%
   filter(station == "DE110" & wavelength == 490) %>%
-  # Mean profile
+  # Calculate mean profile
   group_by(wavelength, depth) %>%
   summarize(edz_kz_mean = mean(edz_kz_mean),
             edz_kz_max = mean(edz_kz_max)) %>%
   ggplot() +
   geom_path(aes(x = edz_kz_mean, y = depth), col = "black") +
+  # Mesopelagic zone defined by Kaartvedt et al. 2019
+  annotate("rect", xmin = 10^-9, xmax = 10^-1, ymin = -Inf, ymax = Inf, 
+           fill = "black", alpha = 0.2) + 
+  # Results from Asknes et al. 2017
+  annotate("rect", xmin = 10^-9, xmax = 10^-6, ymin = -Inf, ymax = Inf, 
+           fill = "black", alpha = 0.2) + 
   scale_x_log10("Ed 490 nm", 
                 breaks = scales::trans_breaks("log10", function(x) 10 ^ x),
                 labels = scales::trans_format("log10", scales::math_format(10 ^ .x))) +
   annotation_logticks(sides = "b") +
-  scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50))
-# CTD plot
-WBAT %>%
+  scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
+  theme(axis.title.y = element_blank())
+
+# WBAT
+p_WBAT <- WBAT %>%
   filter(cast_number == 2 & between(range, 5, 95)) %>%
+  # Calculate median Sv over the 5 - 95 m range
   group_by(depth, frequency) %>%
-  summarise(Sv_median = median(10 ^ (Sv_mean / 10)),
-            NASC = sum(NASC)) %>%
-  mutate(Sv_median = 10 * log10(Sv_median)) %>%
+  summarise(Sv_median = 10 * log10(median(10 ^ (Sv_cor / 10)))) %>%
   ggplot() +
   geom_path(aes(x = Sv_median, y = depth, col = frequency)) +
   scale_x_continuous(breaks = seq(-150, 0, 5)) +
   scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
   theme(legend.position = c(0.5, 1),
         legend.direction = "horizontal",
-        legend.title = element_blank())
-# COPS
-UVP %>%
+        legend.title = element_blank(),
+        axis.title.y = element_blank())
+
+# UVP
+p_UVP <- UVP %>%
   filter(station == "DE110" & cast_number == 2) %>%
   ggplot() +
-  geom_jitter(aes(x = taxa, y = depth_UVP, col = taxa), height = 0, width = 0.1, alpha = 0.5, na.rm = T) +
-  scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50))
+  geom_point(aes(x = taxa, y = depth_round, size = count, col = taxa), alpha = 0.5) +
+  scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) + 
+  scale_size_continuous(range = c(2, 8)) +
+  guides(color = "none") +
+  theme(axis.title.y = element_blank(), 
+        axis.text.x = element_text(angle = -45, hjust = 0, vjust = 0.5))
+
+# Combine plots
+plot_grid(p_CTD, p_fluo, p_COPS, p_WBAT, p_UVP, nrow = 1, align = "h", 
+          axis = "tblr", rel_widths = c(1, 0.8, 1, 1, 1.2))
+
+# Remove unused data
+rm(a, b, p_CTD, p_fluo, p_COPS, p_WBAT, p_UVP)
 ```
-
-
-

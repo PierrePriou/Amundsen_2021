@@ -126,7 +126,7 @@ tibble(lat = c(72.7491, 75.9631, 76.0355, 78.1672),
   theme(panel.border = element_rect(fill = "transparent"))
 ```
 
-Figure 1. Map of northern Baffin Bay with locations of sampling stations (orange circles).
+*Figure 1.* Map of northern Baffin Bay with locations of sampling stations (orange circles).
 
 ## Environmental data
 
@@ -216,9 +216,9 @@ rm(fluo)
 
 ## Wideband Acoustic Transceiver (WBAT)
 
-Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette. The transducers were facing sideward, pulse length was set to 2048 μs, and ping rate to 0.5 Hz. Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded (5.00 m). Using pulse compressed data, we exported mean volume backscatter strength (Sv; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
+Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette. The transducers were facing sideward, pulse length was set to 2048 μs, power to and ping rate to 0.5 Hz. Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded (5.00 m). Using pulse compressed data, we exported mean volume backscatter strength (S~V~; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
 
-```{r load-WBAT-data}
+```{r WBAT-load-data}
 # Load WBAT data
 WBAT_raw <- list.files("data/WBAT", pattern = "*.csv", full.names = T) %>% 
   set_names() %>%
@@ -240,9 +240,9 @@ WBAT_raw <- list.files("data/WBAT", pattern = "*.csv", full.names = T) %>%
 
 For CTD casts 2 and 13, the WBAT was activated with a pressure switch at 8 m depth. However, this switch malfunctioned on October 18^th^. Thus, before deploying the WBAT we synchronized the WBAT and CTD clocks manually. We extracted the mean depth at each second from raw CTD measurements (see `R\CTD_date_depth.R` for more details) and match them to the WBAT time. 
 
-To verify that the calculation of the WBAT depth was correct, we compared the WBAT S~V~ profile at 38 kHz with profiles of the EK80 from the same station. If there was a mismatch in depth, we adjusted the WBAT depth manually. 
+To verify that the calculation of the WBAT depth was correct, we compared the WBAT S~V~ profile at 38 kHz with profiles of the EK80 from the same station. If there was a mismatch in depth, we adjusted the WBAT depth manually. I only considered data collected during the downcast.
 
-```{r combine-WBAT-CTD-depth}
+```{r WBAT-combine-CTD-depth}
 # Load CTD depth
 CTD_date_depth <- read_csv("data/CTD/CTD_date_depth.csv", show_col_types = F)
 
@@ -266,13 +266,15 @@ WBAT_time_corrected <- WBAT_raw %>%
   mutate(depth = floor(depth_raw)) %>%
   # Reorder variables
   dplyr::select(date_WBAT, date_start_CTD, station, cast_number, cast,
-                frequency, depth_raw, depth, range, Sv_mean, NASC)
+                frequency, depth_raw, depth, range, Sv_mean, NASC) %>%
+  # Select data collected during downcast
+  filter(cast == "downcast")
 
 # Remove CTD date depth data
 rm(CTD_date_depth)
 ```
 
-Because the WBAT was mounted on a probe and collected data vertically, I corrected S~V~ for changes in speed of sound and absorption coefficients with depth. To do that, I create a CTD dataset with all the required variables.
+Because the WBAT was mounted on a probe and collected data vertically, I corrected S~V~ for changes in speed of sound and absorption coefficients with depth. To do that, I create a CTD dataset with all the required variables. 
 
 ```{r CTD-sound-speed-abs-coef}
 # CTD with speed of sound and absorption coefficients
@@ -294,10 +296,10 @@ CTD_Sv_correction <- CTD %>%
                 sound_speed, abs38, abs333)
 ```
 
-Then, I match that CTD dataset with the WBAT data and correct Sv. 
+Then, I match that CTD dataset with the WBAT data and correct S~V~. 
 
-```{r Sv-correction-WBAT}
-WBAT <- WBAT_time_corrected %>%
+```{r WBAT-Sv-correction}
+WBAT_cor <- WBAT_time_corrected %>%
   # Combine WBAT and speed of sound and absorption coefficients
   left_join(., CTD_Sv_correction, 
             by = c("date_start_CTD", "station", "cast_number", "depth")) %>%
@@ -343,26 +345,45 @@ WBAT <- WBAT_time_corrected %>%
 rm(WBAT_time_corrected, CTD_Sv_correction)
 ```
 
-To check the signal to noise ratio (over the range) we used the WBAT profile of station BB2 because there was some sections of the water column with very few scatterers.
+Because the sampling resolution of the WBAT was ca. 1 ping / 2 m, I calculate the average S~V~ in 5 m depth bins.
 
-```{r plot-SD-Sv, fig.width=7, fig.height=9}
-WBAT %>%
-  # Calculate standard deviation of Sv corrected over each 1m range bin
-  group_by(frequency, cast_number, range) %>%
-  summarise(mean_Sv = 10 * log10(mean(10 ^ (Sv_cor / 10))),
-            sd_Sv = 10 * log10(sd(10 ^ (Sv_cor / 10)))) %>%
-  ungroup() %>%
-  mutate(cast_number = paste0("CTD ", as.character(cast_number))) %>%
-  ggplot() +
-  geom_path(aes(x = range, y = sd_Sv, col = frequency)) +
-  facet_rep_wrap(~cast_number, ncol = 2) +
-  scale_x_continuous("Range (m)", limits = c(0, 100), breaks = seq(0, 100, 10)) +
-  scale_y_continuous(expression("Standard deviation S"[V]*" (dB re 1 m"^2*")")) +
-  scale_color_discrete("Frequency (kHz)") + 
-  theme(legend.position = c(0.75, 0.1))
+```{r WBAT-5m_bins}
+WBAT_bin <- WBAT_cor %>%
+  # Calculate Sv mean and SD for each 5 m depth bin
+  mutate(depth_round = plyr::round_any(depth, 5, floor)) %>%
+  group_by(date_start_CTD, lat, lon, station, cast_number, frequency, depth_round, range) %>%
+  summarise(Sv_cor_mean = mean(Sv_cor),
+            Sv_cor_SD = sd(Sv_cor)) %>%
+  ungroup() 
+
+# Remove unused data
+rm(WBAT_cor)
 ```
 
-SD slightly increasing with range at 333 (to be expected?) because of SNR?
+The signal-to-noise ratio (SNR) was good over the entire range (0-100 m) at 38 kHz although there seemed to be some rosette avoidance (Figure 2). At 333 kHz, the SNR was relatively low at higher ranges (> 60 m). Echoview 12.1 cannot evaluate background noise and SNR, however Echoview 13 will be able to do it. Thus, for now, we constrained our analyses to 10 - 95 m range at 38 kHz, and 10 - 60 m at 333 kHz.
+
+```{r WBAT-echograms, fig.height=12, fig.width=7}
+WBAT_bin %>%
+  mutate(frequency = paste0("pulse-compressed ", frequency, " kHz"),
+         cast_number = paste0("CTD ", cast_number)) %>%
+  ggplot(aes(x = range, y = depth_round, fill = Sv_cor_mean)) +
+  geom_tile() +
+  scale_fill_viridis_c(name = "Sv") +
+  scale_x_continuous("Range (m)", breaks = seq(0, 100, 10)) +
+  scale_y_reverse("Depth (m)") +
+  facet_rep_grid(cast_number ~ frequency, scales = "free_y") + 
+  theme(legend.key.height = unit(0.4, "in"),
+        legend.key.width = unit(0.1, "in"))
+```
+
+*Figure 2.* Echograms of volume backscattering strength (S~V~ in dB re 1 m^-1^) at 333 kHz (left) and 38 kHz (right) for each CTD cast. Note the difference depth scale between CTD casts.
+
+```{r WBAT-range-selection}
+WBAT <- WBAT_bin %>%
+  # Select ranges with good SNR
+  mutate(keep = case_when(frequency == 38 ~ if_else(between(range, 10, 95), T, F),
+                          frequency == 333 ~ if_else(between(range, 10, 60), T, F)))
+```
 
 **FREQUENCY RESPONSES**
 
@@ -441,7 +462,7 @@ COPS <- COPS_raw %>%
   ungroup()
 ```
 
-To extrapolate irradiance at the depth of the DSL I need to use the appropriate coefficient of extinction (kz) (Figure 2). 
+To extrapolate irradiance at the depth of the DSL I need to use the appropriate coefficient of extinction (kz) (Figure 3). 
 
 ```{r plot-COPS-fluo, fig.width=10, fig.height=8}
 # Combine fluo and CTD
@@ -506,10 +527,9 @@ plot_grid(p_edz, p_kz, p_fluo, align = "hv", axis = "tblr", ncol = 3,
 rm(p_edz, p_kz, p_fluo, COPS_fluo, col_pal)
 ```
 
-Figure 2. Vertical profile of (a) downwelling irradiance (Ed in µW cm^-2^ nm^-1^) and (b) coefficient of extinction (kz in m^-1^) between 400 and 700 nm (colored lines), and (c) fluorescence (arbitrary units) at each station. The dashed red rectangles in (c) indicate the depth ranges where light data are available. Note the different y-axis scale for (c) the fluorescence. 
+*Figure 3.* Vertical profile of (a) downwelling irradiance (Ed in µW cm^-2^ nm^-1^) and (b) coefficient of extinction (kz in m^-1^) between 400 and 700 nm (colored lines), and (c) fluorescence (arbitrary units) at each station. The dashed red rectangles in (c) indicate the depth ranges where light data are available. Note the different y-axis scale for (c) the fluorescence. 
 
 For each wavelength, we calculated the mean kz (k~mean~) of the last 5 m of the profile. To extrapolate irradiance at mesopelagic depth, we used both k~mean~ and the deepest kz (k~max~) available at each wavelength. 
-
 ```{r kz-calulation}
 # Mean kz over the last 5 m
 kz_mean <- COPS %>% 
@@ -581,9 +601,11 @@ p_CTD <- CTD %>%
   geom_path(aes(x = te90, y = depth, group = cast_number), col = "red", na.rm = T) +
   # Salinity
   geom_path(aes(x = a + psal * b, y = depth, group = cast_number), col = "blue", na.rm = T) +
-  scale_x_continuous("temp", breaks = seq(-2, 10, 0.5),
-                     sec.axis = sec_axis(~ (. - a)/b, name = "sal", breaks = seq(0, 40, 1))) +
-  scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
+  # Scales
+  scale_x_continuous("Temperature (°C)", breaks = seq(-2, 10, 0.5),
+                     sec.axis = sec_axis(~ (. - a)/b, name = "Salinity (PSU)",
+                                         breaks = seq(0, 40, 1))) +
+  scale_y_reverse("Depth (m)", limits = c(265, 0), breaks = seq(0, 1500, 50)) +
   theme(axis.line.x.bottom = element_line(color = "red"), 
         axis.ticks.x.bottom = element_line(color = "red"),
         axis.text.x.bottom = element_text(color = "red"), 
@@ -597,19 +619,22 @@ p_CTD <- CTD %>%
 p_fluo <- CTD %>%
   filter(cast_number == 2) %>%
   ggplot() +
+  # Fluorescence
   geom_path(aes(x = fluo, y = depth, group = cast_number), col = "darkgreen", na.rm = T) +
-  scale_x_continuous("Fluo (FLU)") +
+  # Scales
+  scale_x_continuous("Fluorescence (FLU)") +
   scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
   theme(axis.title.y = element_blank())
 
 # COPS
 p_COPS <- COPS_extra %>%
   filter(station == "DE110" & wavelength == 490) %>%
-  # Calculate mean profile
+  # Calculate mean profile over several casts at 490 nm
   group_by(wavelength, depth) %>%
   summarize(edz_kz_mean = mean(edz_kz_mean),
             edz_kz_max = mean(edz_kz_max)) %>%
   ggplot() +
+  # Edz profile
   geom_path(aes(x = edz_kz_mean, y = depth), col = "black") +
   # Mesopelagic zone defined by Kaartvedt et al. 2019
   annotate("rect", xmin = 10^-9, xmax = 10^-1, ymin = -Inf, ymax = Inf, 
@@ -617,7 +642,8 @@ p_COPS <- COPS_extra %>%
   # Results from Asknes et al. 2017
   annotate("rect", xmin = 10^-9, xmax = 10^-6, ymin = -Inf, ymax = Inf, 
            fill = "black", alpha = 0.2) + 
-  scale_x_log10("Ed 490 nm", 
+  # Scales
+  scale_x_log10(expression("Ed"[490]*" (µW cm"^-2*" nm"^-1*")"),
                 breaks = scales::trans_breaks("log10", function(x) 10 ^ x),
                 labels = scales::trans_format("log10", scales::math_format(10 ^ .x))) +
   annotation_logticks(sides = "b") +
@@ -626,29 +652,40 @@ p_COPS <- COPS_extra %>%
 
 # WBAT
 p_WBAT <- WBAT %>%
-  filter(cast_number == 2 & between(range, 5, 95)) %>%
-  # Calculate median Sv over the 5 - 95 m range
-  group_by(depth, frequency) %>%
-  summarise(Sv_median = 10 * log10(median(10 ^ (Sv_cor / 10)))) %>%
+  # Correct labels
+  mutate(frequency = factor(paste0(frequency, " kHz"),
+                            levels = c("38 kHz", "333 kHz"))) %>%
+  filter(cast_number == 2) %>%
+  # Calculate median Sv over the whole range (10-95m @38 kHz and 10-60m @ 333 kHz)
+  group_by(depth_round, frequency) %>%
+  summarise(Sv_mean = 10 * log10(mean(10 ^ (Sv_cor_mean / 10)))) %>%
+  ungroup() %>%
   ggplot() +
-  geom_path(aes(x = Sv_median, y = depth, col = frequency)) +
-  scale_x_continuous(breaks = seq(-150, 0, 5)) +
+  # Sv at 38 and 333 kHz
+  geom_path(aes(x = Sv_mean, y = depth_round, col = frequency)) +
+  # Scales
+  scale_x_continuous(expression("S"[V]*" (db re 1 m"^-1*")"), breaks = seq(-150, 0, 5)) +
   scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) +
-  theme(legend.position = c(0.5, 1),
-        legend.direction = "horizontal",
+  theme(legend.position = "top",
         legend.title = element_blank(),
         axis.title.y = element_blank())
 
 # UVP
 p_UVP <- UVP %>%
-  filter(station == "DE110" & cast_number == 2) %>%
+  filter(cast_number == 2) %>%
   ggplot() +
+  # Count per 5 m depth
   geom_point(aes(x = taxa, y = depth_round, size = count, col = taxa), alpha = 0.5) +
+  # Scales
+  scale_x_discrete("Taxa") +
   scale_y_reverse(limits = c(265, 0), breaks = seq(0, 1500, 50)) + 
-  scale_size_continuous(range = c(2, 8)) +
-  guides(color = "none") +
-  theme(axis.title.y = element_blank(), 
-        axis.text.x = element_text(angle = -45, hjust = 0, vjust = 0.5))
+  scale_size("Count", range = c(1.5, 10)) +
+  scale_color_viridis_d(option = "mako", begin = 0.1, end = 0.8) +
+  guides(color = "none", 
+         size = guide_legend(label.position = "top", label.vjust = -1)) +
+  theme(legend.position = "top",
+        axis.title.y = element_blank())#
+        # axis.text.x = element_text(angle = -45, hjust = 0, vjust = 0.5))
 
 # Combine plots
 plot_grid(p_CTD, p_fluo, p_COPS, p_WBAT, p_UVP, nrow = 1, align = "h", 
@@ -657,3 +694,4 @@ plot_grid(p_CTD, p_fluo, p_COPS, p_WBAT, p_UVP, nrow = 1, align = "h",
 # Remove unused data
 rm(a, b, p_CTD, p_fluo, p_COPS, p_WBAT, p_UVP)
 ```
+

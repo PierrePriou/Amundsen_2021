@@ -1,0 +1,227 @@
+---
+title: "Noise level estimates for vertical profiles of wideband acoustic data"
+author: "Pierre Priou - pierre.priou@mi.mun.ca"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(cowplot)
+```
+
+```{r figure-theme}
+theme_set(theme_bw())
+theme_update(panel.border = element_blank(), 
+             axis.line = element_line(),
+             axis.text = element_text(size = 10),
+             axis.title = element_text(size = 11),
+             legend.title = element_text(size = 11),
+             strip.text.x = element_text(size = 11, face = "plain", 
+                                         hjust = 0.5),
+             strip.background = element_rect(colour = "transparent", 
+                                             fill = "transparent"),
+             legend.margin = margin(0, 0, 0, 0),
+             legend.box.margin = margin(0, 0, -8, 0),
+             plot.margin = unit(c(0.075, 0.075, 0.075, 0.075), "in"))
+```
+
+# Aim
+
+This document determines noise levels from wideband target strength (TS) values exported at the nominal frequency. This document is a R translation of the [`Calculate_noise_level.iynb` Jupyter Notebook](https://github.com/GMEA-Lab/gmea-repo/blob/master/Noise/Calculate_noise_level.ipynb) of Muriel Dunn. The idea behind this method is to remove all single target from the TS echogram to calculate the background noise. The best results are obtained for areas of the echogram with low target densities.
+
+**Important note:** For now, this workflow only works for split-beam data, as single targets need to be filtered-out of the data. 
+
+# Echoview pre-processing
+
+First single targets are detected in Echoview with some relatively permissive settings to make sure that all targets are detected using the Single target detection - wideband 1 algorithm. Then, we mask the area surrounding the single targets, here, I used a 0.5 m margin window. We then inverse the mask to mask single targets and apply on the TS data. See Figure 1, for the Echoview workflow. Data is then exported using `Echogram > Export > TS_value`.
+
+![](img/Noise_estimation_TS_workflow.png)
+
+**Figure 1.** Echoview workflow used to produce the echogram of solely background noise.
+
+# Data processing
+
+Since the data output from Echoview is a bit strange, I read the full dataset as character and select the variables of interest from that.
+
+```{r noise-load-data, warning=F}
+# Metadata
+TS_noise_raw <- list.files("data/WBAT/noise_levels/", pattern = "*noise.ts.csv", full.names = T) %>% 
+  set_names() %>%
+  # Read data
+  map_dfr(.f = ~ read_delim(., show_col_types = F, quote = ",", col_names = F,
+                            col_types = cols(.default = "c"), skip = 1), .id = "filename") %>% 
+  # Fix formats
+  unite(date, X4, X5) %>%
+  mutate(date = ymd_hms(date)) %>%
+  # Rename important variables
+  rename(range_start = X11,
+         range_stop = X12,
+         n_bins = X13) %>%
+  # Fix their format
+  mutate(range_start = as.numeric(range_start),
+         range_stop = as.numeric(range_stop),
+         n_bins = as.numeric(n_bins), 
+         col_max = n_bins + 14) %>%
+  # Extract serial number of echosounder
+  mutate(SN = str_extract(filename, pattern = "SN[0-9]{6}"))
+```
+
+The TS data is stored as a list with each sample separated by a comma. However, most of the data is duplicated. So, I find the column where the data starts to be duplicated and remove those extra columns.
+
+```{r noise-tidy-data}
+# Set range for pivoting data and the column at which duplicate start names and column to find duplicate
+range <- seq(TS_noise_raw$range_start[1], TS_noise_raw$range_stop[1], length.out = TS_noise_raw$n_bins[1])
+col_stop <- TS_noise_raw$col_max[1]
+
+TS_noise <- TS_noise_raw %>%
+  # Find duplicates
+  rename(stop = col_stop[1]) %>%
+  # Remove duplicated columns
+  select(SN, date, range_start, range_stop, n_bins, X14:stop) %>%
+  # Pivot TS values
+  pivot_longer(cols = starts_with("X"), names_to = "col", values_to = "TS", values_transform = as.numeric) %>%
+  # Add range and convert TS
+  group_by(date) %>%
+  mutate(range = range) %>%
+  ungroup() %>%
+  # Remove unused variables
+  select(-stop, -col) %>%
+  # Remove empty water
+  filter(TS > -999)
+
+rm(range, col_stop)
+```
+
+# Noise estimates
+
+First I plot the TS echogram to verify if the data manipulation worked (Figure 2).
+
+```{r plot-echogram}
+TS_noise %>%
+  ggplot() + 
+  geom_tile(aes(x = date, y = range, fill = TS)) +
+  scale_fill_viridis_c(limits = c(-120, -70), oob = scales::squish) + 
+  scale_x_datetime("Time (UTC)") +
+  scale_y_reverse("range (m)") + 
+  facet_wrap(~ SN)
+```
+
+**Figure 2.** Echogram of target strength in dB re 1 m^2^ of noise only.
+
+I calculate the mean noise level for each range interval (Figure 3).
+
+```{r calculate-noise, message=FALSE}
+noise_level <- TS_noise %>%
+  group_by(SN, range) %>%
+  summarise(noise_mean = mean(TS),
+            noise_median = median(TS)) %>%
+  ungroup()
+```
+
+Plot noise level.
+
+```{r plot-noise}
+ggplotly(
+  noise_level %>%
+    ggplot() +
+    geom_path(aes(x = noise_mean, y = range), col = "blue", alpha = 0.5) +
+    geom_path(aes(x = noise_median, y = range), col = "red", alpha = 0.5) +
+    scale_x_continuous("TS dB re 1 m2") +
+    scale_y_reverse("Range (m)") + 
+    facet_wrap(~ SN)
+)
+```
+
+**Figure 3.** Noise levels at 38 kHz, mean noise is in blue and median noise in red.
+
+# Target data
+
+I load target to calculate the signal-to-noise ratio (SNR).
+
+```{r target-load-data, warning=F}
+# Metadata
+TS_target_raw <- list.files("data/WBAT/noise_levels/", pattern = "*target.ts.csv", full.names = T) %>% 
+  set_names() %>%
+  # Read data
+  map_dfr(.f = ~ read_delim(., show_col_types = F, quote = ",", col_names = F,
+                            col_types = cols(.default = "c"), skip = 1), .id = "filename") %>% 
+  # Fix formats
+  unite(date, X4, X5) %>%
+  mutate(date = ymd_hms(date)) %>%
+  # Rename important variables
+  rename(range_start = X11,
+         range_stop = X12,
+         n_bins = X13) %>%
+  # Fix their format
+  mutate(range_start = as.numeric(range_start),
+         range_stop = as.numeric(range_stop),
+         n_bins = as.numeric(n_bins), 
+         col_max = n_bins + 14) %>%
+  # Extract serial number of echosounder
+  mutate(SN = str_extract(filename, pattern = "SN[0-9]{6}"))
+```
+
+I tidy it and add the noise level.
+
+```{r target-tidy-data}
+# Set range for pivoting data and the column at which duplicate start names and column to find duplicate
+range <- seq(TS_noise_raw$range_start[1], TS_noise_raw$range_stop[1], length.out = TS_noise_raw$n_bins[1])
+col_stop <- TS_noise_raw$col_max[1]
+
+TS_target <- TS_target_raw %>%
+  # Find duplicates
+  rename(stop = col_stop[1]) %>%
+  # Remove duplicated columns
+  select(SN, date, range_start, range_stop, n_bins, X14:stop) %>%
+  # Pivot TS values
+  pivot_longer(cols = starts_with("X"), names_to = "col", values_to = "TS", values_transform = as.numeric) %>%
+  # Add range and convert TS
+  group_by(date) %>%
+  mutate(range = range) %>%
+  ungroup() %>%
+  # Remove unused variables
+  select(-stop, -col) %>%
+  # Remove empty water
+  filter(TS > -999) %>%
+  # Add noise level
+  left_join(., noise_level, by = c("SN", "range")) %>%
+  # Calculate SNR
+  mutate(SNR = TS - noise_mean)
+
+rm(range, col_stop)
+```
+
+# Final plot
+
+Plot noise levels and echograms side-by-side (Figure 4).
+
+```{r final-plot}
+target <- TS_target %>%
+  ggplot() +
+  geom_point(aes(x = TS, y = range, col = SNR > 10), alpha = 0.05) +
+  geom_path(data = noise_level, aes(x = noise_mean, y = range)) +
+  scale_x_continuous(expression("TS dB re 1 m"^2*"")) +
+  scale_y_reverse("Range (m)", limits = c(100, 0)) + 
+  facet_wrap(~ SN, ncol = 1) + 
+  theme(legend.position = "none")
+
+echogram <- TS_noise %>%
+  ggplot() + 
+  geom_tile(aes(x = date, y = range, fill = TS)) +
+  scale_fill_viridis_c(limits = c(-120, -70), oob = scales::squish) + 
+  scale_x_datetime("Time (UTC)") +
+  scale_y_reverse("Range (m)", limits = c(100, 0)) + 
+  facet_wrap(~ SN, ncol = 1)
+
+plot_grid(target, echogram, align = "h", axis = "tblr", rel_widths = c(0.6, 1), labels = "AUTO")
+```
+
+**Figure 4.** (**A**) Noise level at 38 kHz (black line) overlayed over target data, and (**B**) echogram of noise only.

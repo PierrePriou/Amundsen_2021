@@ -3,6 +3,7 @@
 *.docx
 *.xls
 *.xlsx
+*.html
 .Rproj.user
 .Rhistory
 .RData

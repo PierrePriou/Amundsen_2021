@@ -18,7 +18,7 @@ for (i in 1:length(file_list)){
     rename(date_trios = Date_Time,
            lat = Lat,
            lon = Long, 
-           PAR_umol_m2 = PAR) %>%
+           PAR0_umol_m2 = PAR) %>%
     # Long format
     pivot_longer(5:635, names_to = "lambda_nm", values_to = "e0_umol_m2") %>%
     # Select wavelength common to C-OPS and TriOS to reduce size of the file
@@ -45,34 +45,9 @@ cowplot::plot_grid(
   # Boxplot of PAR
   trios_raw %>%
     ggplot() +
-    geom_boxplot(aes(x = trios_filename, y = PAR_umol_m2), na.rm = T),
+    geom_boxplot(aes(x = trios_filename, y = PAR0_umol_m2), na.rm = T),
   ncol = 1)
 # Outliers on October 15
 
-# Tidy data
-trios <- trios_raw %>%
-  # Replace potential outliers by NaN
-  mutate(e0_umol_m2 = if_else(between(e0_umol_m2, -1 * 10^-5, 1), e0_umol_m2, NaN),
-         PAR_umol_m2 = if_else(between(PAR_umol_m2, -1 * 10^-5, 500), PAR_umol_m2, NaN))
-
-# Plot to check whether outliers were removed or not
-cowplot::plot_grid(
-  # Boxplot of e0 at all wavelengths
-  trios %>%
-    ggplot() +
-    geom_boxplot(aes(x = trios_filename, y = e0_umol_m2, color = factor(lambda_nm)), na.rm = T) +
-    theme(legend.position = "none"),
-  # Boxplot of PAR
-  trios %>%
-    ggplot() +
-    geom_boxplot(aes(x = trios_filename, y = PAR_umol_m2), na.rm = T),
-  ncol = 1)
-
-# Test plot
-trios %>%
-  filter(lambda_nm == 490) %>%
-  ggplot() + 
-  geom_point(aes(x = date_trios, y = e0_umol_m2), na.rm = T)
-
 # Write csv
-write_csv(trios, file = "data/TriOS/TriOS_processed.csv")
+write_csv(trios_raw, file = "data/TriOS/TriOS_processed.csv")

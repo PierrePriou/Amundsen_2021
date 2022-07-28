@@ -20,7 +20,6 @@ library(oce)          # Speed of sound and absorption coefs.
 library(cowplot)      # Multiple plots
 library(lemon)        # Facets
 library(rgdal)        # Read shapefiles
-library(marmap)       # Bathymetry data of the Arctic Ocean
 library(cmocean)      # Colour palettes
 library(photobiology) # Assign rgb colour to wavelength
 source("R/sv_depth_correction_fm.R")  # Correct Sv vertical profiles
@@ -55,18 +54,15 @@ The goals of this study were two-fold, (1) investigate whether mesopelagic organ
 
 # Materials and methods
 
-```{r load-bathy-coast, message=FALSE}
-# Load data
-bathy <- read_csv("data/bathy/bathy_BaffinBay_-105;-45;65;82_res2.csv",
-                  show_col_types = F) %>%
-  mutate(depth_d = factor(case_when(between(depth, -50, Inf) ~ "0-50",
-                                    between(depth, -100, -50) ~ "50-100",
-                                    between(depth, -200, -100) ~ "100-200",
-                                    between(depth, -500, -200) ~ "200-500",
-                                    between(depth, -1000, -500) ~ "500-1000",
-                                    between(depth, -Inf, -1000) ~ "1000-2500"),
-                          levels = c("0-50", "50-100", "100-200", "200-500", "500-1000", "1000-2500")))
-coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
+```{r load-bathy-coast, echo=TRUE, message=FALSE, warning=FALSE}
+# Bathymetry
+bathy <- read_csv("data/bathy/bathy_BaffinBay.csv", show_col_types = F) %>%
+  # Reduce dataset size for faster plotting
+  filter(depth < 1000 & between(lat, 68, 83.5)) %>%
+  mutate(depth = if_else(depth > 0, NaN, depth))
+# Coastlines
+coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>%
+  # Convert to dataframe
   fortify() %>%
   rename(lon = long,
          region = id)
@@ -74,57 +70,56 @@ coast <- readOGR("data/bathy/ne_10m_land.shp", verbose = F) %>% # Coastlines
 
 The CCGS *Amundsen* surveyed northern Baffin Bay between between October 12 and 27, 2021 (Figure 1) during the DarkEdge campaign. We deployed our instruments at three stations, north of Coburg Island, in Smith Sound, and Jones Sound in varying sea ice conditions (Figure 1).
 
-```{r map-area}
-tibble(lat = c(72.7491, 75.9631, 76.0355, 78.1672),
-       lon = c(-67.0011, -85.5952, -77.2374, -74.8258),
-       station = c("BB2", "DE420", "DE110", "DE320")) %>%
+```{r map-area, eval=FALSE}
+tictoc::tic()
+map <- tibble(lat = c(72.7491, 75.9631, 76.0355, 78.1672),
+              lon = c(-67.0011, -85.5952, -77.2374, -74.8258),
+              station = c("BB2", "DE420", "DE110", "DE320")) %>%
   # Map
   ggplot() +
   # Bathymetry
-  geom_tile(data = filter(bathy, depth <= 20),
-            aes(x = lon, y = lat, fill = depth),
-            alpha = 0.7) +
-  scale_fill_cmocean("Depth (m)", name = "deep", discrete = F, direction = -1) +
+  geom_tile(data = bathy, aes(x = lon, y = lat, col = depth, fill = depth)) +
+  scale_color_cmocean("Depth (m)", name = "deep", discrete = F, na.value = "#FDFECCFF",
+                     direction = -1, limits = c(-2500, 0),
+                     breaks = seq(-2500, 0, 500), labels = seq(-2500, 0, 500) * -1) +
+  scale_fill_cmocean("Depth (m)", name = "deep", discrete = F, na.value = "#FDFECCFF",
+                     direction = -1, limits = c(-2500, 0),
+                     breaks = seq(-2500, 0, 500), labels = seq(-2500, 0, 500) * -1) +
+  # Longitude lines
+  geom_segment(aes(x = -100, xend = -100, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -90, xend = -90, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -80, xend = -80, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -70, xend = -70, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -60, xend = -60, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -50, xend = -50, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -40, xend = -40, y = 60, yend = 90), col = "grey20", size = 0.15, alpha = 0.25) +
+  scale_x_continuous("Longitude (°E)", breaks = c(-80.14, -70, -59.83), labels = seq(-80, -60, 10)) +
+  # Latitude lines
+  geom_segment(aes(x = -120, xend = 0, y = 70, yend = 70), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -120, xend = 0, y = 72, yend = 72), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -120, xend = 0, y = 74, yend = 74), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -120, xend = 0, y = 76, yend = 76), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -120, xend = 0, y = 78, yend = 78), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -120, xend = 0, y = 80, yend = 80), col = "grey20", size = 0.15, alpha = 0.25) +
+  geom_segment(aes(x = -120, xend = 0, y = 82, yend = 82), col = "grey20", size = 0.15, alpha = 0.25) +
+  scale_y_continuous("Latitude (°N)", breaks = c(70.05, 72.25, 74.47, 76.74, 79.07, 81.54),
+                     labels = seq(70, 80, 2)) +
   # Coastlines
   geom_polygon(data = coast, aes(x = lon, y = lat, group = group),
                fill = "grey45") +
-  # Longitude lines
-  geom_segment(aes(x = -90, xend = -90, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -85, xend = -85, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -80, xend = -80, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -75, xend = -75, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -70, xend = -70, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -65, xend = -65, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -60, xend = -60, y = 60, yend = 90), col = "grey90", size = 0.3, lty = 2) +
-  scale_x_continuous("Longitude (°E)", 
-                     breaks = c(-85.12, -80.02, -75, -70, -64.78), 
-                     labels = seq(-85, -65, 5)) +
-  # Latitude lines
-  geom_segment(aes(x = -120, xend = 0, y = 71, yend = 71), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 72, yend = 72), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 73, yend = 73), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 74, yend = 74), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 75, yend = 75), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 76, yend = 76), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 77, yend = 77), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 78, yend = 78), col = "grey90", size = 0.3, lty = 2) +
-  geom_segment(aes(x = -120, xend = 0, y = 79, yend = 79), col = "grey90", size = 0.3, lty = 2) +
-  scale_y_continuous("Latitude (°N)",
-                     breaks = c(71.01, 72.05, 73.09, 74.15, 75.2, 76.25, 77.32, 78.4), 
-                     labels = seq(71, 78, 1)) +
-  # Labels
-  annotate("text", y = 77, x = -84, label = "Ellesmere Isl.", color = "grey20", fontface = "italic") +
-  annotate("text", y = 75.2, x = -84, label = "Devon Isl.", color = "grey20", fontface = "italic") +
-  annotate("text", y = 78, x = -63, label = "Greenland", color = "grey20", fontface = "italic") +
-  annotate("text", y = 71.2, x = -80, label = "Baffin Isl.", color = "grey20", fontface = "italic") +
   # Stations
-  geom_point(aes(x = lon, y = lat), col = "darkorange", size = 3) + 
-  geom_text(aes(x = lon, y = lat, label = station), col = "black", hjust = -0.1, vjust = -0.5) + 
+  geom_point(aes(x = lon, y = lat), col = "darkorange", size = 1.25) +
   # Change map projection
-  # coord_map("azequidistant", ylim = c(70.8, 78.5), xlim = c(-86, -65)) +
-  coord_quickmap(ylim = c(71.2, 78.5), xlim = c(-86, -65)) +
-  theme(panel.border = element_rect(fill = "transparent"))
+  coord_map("azequalarea", ylim = c(70, 82.2), xlim = c(-85.2, -55)) +
+  theme(panel.border = element_rect(fill = "transparent"),
+        legend.key.height = unit(0.3, "in"),
+        legend.key.width = unit(0.1, "in"))
+# Save map
+ggsave("img/map_stations.png", width = 6.5, height = 4, units = "in", dpi = 600)
+tictoc::toc()
 ```
+
+![](img/map_stations.png)
 
 *Figure 1.* Map of northern Baffin Bay with locations of sampling stations (orange circles).
 

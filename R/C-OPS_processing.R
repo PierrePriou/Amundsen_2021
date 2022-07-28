@@ -19,12 +19,12 @@ for (i in file_list) {
   # Extract mean surface irradiance (Ed0.0p) (sensor on deck)
   ed0_tmp <- bind_cols(cops$Ed0.waves, cops$Ed0.0p) %>% 
     as_tibble() %>%
-    rename(wavelength = "...1",
+    rename(lambda_nm = "...1",
            mean_ed0 = "...2")
   # Extract mean downwelling irradiance below surface (Ed0.0p) and detection levels
   edz_0m_tmp <- bind_cols(cops$EdZ.waves, cops$EdZ.0m, cops$EdZ.detection.limit) %>% 
     as_tibble() %>%
-    rename(wavelength = "...1",
+    rename(lambda_nm = "...1",
            mean_edz_0m = "...2", 
            detection_levels = "...3")
   # Extract Kz (attenuation coefficient at depth z)
@@ -33,22 +33,22 @@ for (i in file_list) {
     # Extract depth
     mutate(depth = as.numeric(rownames(cops$KZ.EdZ.fitted))) %>%
     # Long format
-    pivot_longer(1:19, names_to = "wavelength", values_to = "kz") %>%
+    pivot_longer(1:19, names_to = "lambda_nm", values_to = "kz") %>%
     # Convert wavelength to numeric
-    mutate(wavelength = as.numeric(wavelength)) 
+    mutate(lambda_nm = as.numeric(lambda_nm)) 
   # Extract downwelling irradiance at depth
   edz_tmp <- cops$EdZ.fitted %>% 
     as_tibble() %>%
     # Extract depth
     mutate(depth = as.numeric(rownames(cops$EdZ.fitted))) %>%
     # Long format
-    pivot_longer(1:19, names_to = "wavelength", values_to = "edz") %>%
+    pivot_longer(1:19, names_to = "lambda_nm", values_to = "ed_uW_cm2") %>%
     # Convert wavelength to numeric
-    mutate(wavelength = as.numeric(wavelength)) %>%
+    mutate(lambda_nm = as.numeric(lambda_nm)) %>%
     # Combine Kz, Ed0 and EdZ_0m
-    left_join(., kz_edz, by = c("depth", "wavelength")) %>%
-    left_join(., ed0_tmp, by = "wavelength") %>%
-    left_join(., edz_0m_tmp, by = "wavelength") %>% 
+    left_join(., kz_edz, by = c("depth", "lambda_nm")) %>%
+    left_join(., ed0_tmp, by = "lambda_nm") %>%
+    left_join(., edz_0m_tmp, by = "lambda_nm") %>% 
     # Add metadata
     mutate(date_COPS = cops$date.mean,
            station = str_extract(cops$file, "DE[0-9]{3}"),
@@ -61,15 +61,20 @@ for (i in file_list) {
   COPS <- bind_rows(COPS, edz_tmp)
 }
 
+# Reorder variables
+COPS <- COPS %>%
+  dplyr::select(station, COPS_ID, date_COPS, depth, lambda_nm, detection_levels, 
+                mean_ed0, mean_edz_0m, kz, ed_uW_cm2)
+
 # Write csv
 write_csv(COPS, file = "data/C-OPS/C-OPS_processed.csv")
 
 # Test plot
 COPS %>%
   # Select data at 490 nm
-  filter(wavelength == 490) %>%
+  filter(lambda_nm == 490) %>%
   # Plot
-  ggplot(aes(x = edz, y = depth, col = COPS_ID)) +
+  ggplot(aes(x = ed_uW_cm2, y = depth, col = COPS_ID)) +
   geom_point(alpha = 0.2) +
   scale_x_continuous("Log10(Edz) @490 nm (µW cm-2 nm-1)", trans = "log10") +
   scale_y_reverse() + 

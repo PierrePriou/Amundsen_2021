@@ -27,8 +27,14 @@ for (i in file_list) {
     rename(lambda_nm = "...1",
            mean_edz_0m = "...2", 
            detection_levels = "...3")
+  # Extract PAR (Photosynthetically active radiation 400-700 nm in umol m-2 s-1)
+  PAR_tmp <- cops$PARd.z %>%
+    as_tibble() %>%
+    rename(PAR_umol_m2 = value) %>%
+    # Extract depth
+    mutate(depth = as.numeric(depth_tmp$depth)) 
   # Extract Kz (attenuation coefficient at depth z)
-  kz_edz <- cops$KZ.EdZ.fitted %>%
+  kz_edz_tmp <- cops$KZ.EdZ.fitted %>%
     as_tibble() %>%
     # Extract depth
     mutate(depth = as.numeric(rownames(cops$KZ.EdZ.fitted))) %>%
@@ -45,8 +51,9 @@ for (i in file_list) {
     pivot_longer(1:19, names_to = "lambda_nm", values_to = "ed_uW_cm2") %>%
     # Convert wavelength to numeric
     mutate(lambda_nm = as.numeric(lambda_nm)) %>%
-    # Combine Kz, Ed0 and EdZ_0m
-    left_join(., kz_edz, by = c("depth", "lambda_nm")) %>%
+    # Combine PAR, Kz, Ed0 and EdZ_0m
+    left_join(., PAR_tmp, by = c("depth")) %>%
+    left_join(., kz_edz_tmp, by = c("depth", "lambda_nm")) %>%
     left_join(., ed0_tmp, by = "lambda_nm") %>%
     left_join(., edz_0m_tmp, by = "lambda_nm") %>% 
     # Add metadata
@@ -64,7 +71,7 @@ for (i in file_list) {
 # Reorder variables
 COPS <- COPS %>%
   dplyr::select(station, COPS_ID, date_COPS, depth, lambda_nm, detection_levels, 
-                mean_ed0, mean_edz_0m, kz, ed_uW_cm2)
+                PAR_umol_m2, mean_ed0, mean_edz_0m, kz, ed_uW_cm2)
 
 # Write csv
 write_csv(COPS, file = "data/C-OPS/C-OPS_processed.csv")

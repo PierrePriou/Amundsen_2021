@@ -360,7 +360,7 @@ WBAT_bin <- WBAT_cor %>%
 rm(WBAT_cor)
 ```
 
-The signal-to-noise ratio (SNR) was good over the entire range (0-100 m) at 38 kHz although there seemed to be some rosette avoidance (Figure 2). At 333 kHz, the SNR was relatively low at higher ranges (> 60 m). Echoview 12.1 cannot evaluate background noise and SNR, however Echoview 13 will be able to do it. Thus, for now, we constrained our analyses to 10 - 95 m range at 38 kHz, and 10 - 60 m at 333 kHz.
+The signal-to-noise ratio (SNR) was good over the entire range (0-100 m) at 38 kHz although there seemed to be some rosette avoidance (Figure 2). At 333 kHz, the SNR was relatively low at higher ranges (> 60 m). Echoview 12.1 cannot evaluate background noise and SNR, however Echoview 13 will be able to do it. Thus, for now, we constrained our analyses to 10 - 95 m range at 38 kHz, and 10 - 80 m at 333 kHz.
 
 ```{r WBAT-echograms, fig.height=12, fig.width=7}
 WBAT_bin %>%
@@ -382,7 +382,10 @@ WBAT_bin %>%
 WBAT <- WBAT_bin %>%
   # Select ranges with good SNR
   mutate(keep = case_when(frequency == 38 ~ if_else(between(range, 10, 95), T, F),
-                          frequency == 333 ~ if_else(between(range, 10, 60), T, F)))
+                          frequency == 333 ~ if_else(between(range, 10, 80), T, F)))
+
+# Remove unused variables
+rm(WBAT_bin)
 ```
 
 **FREQUENCY RESPONSES**
@@ -439,156 +442,39 @@ UVP <- UVP_raw %>%
 
 ## Light data
 
-A Compact Optical Profiling System (C-OPS) equipped with a MPE sensor was used to collect irradiance profiles through the water column. Profiles were taken around noon with the C-OPS free falling down to ca. 100 m depth (Table 1). The instrument was deployed from the bow to avoid potential shading of the sensor by the ship. 
+Surface irradiance was collected  from October 12 until 25 from dusk to dawn with, except between October 20-22 when it was continuously recorded, using a TriOS sensor. The TriOS recorded spectral irradiance between 320 and 950 nm with a 1 nm bandwidth at 1 second intervals. A Compact Optical Profiling System (C-OPS) was used to collect irradiance profiles between 380 and 875 nm through the water column around solar noon. We converted irradiance from energy units (W m^-2^ nm^-1^) to quantum fluxes (μmol photons m^-2^ s^-1^ nm^-1^). For each station and wavelength, we estimated the coefficient of attenuation (K~d~ in m^-1^) from the regression of the natural log of downwelling irradiance over depth. K~d~ with coefficients of determination below 0.9 were considered too uncertain and were removed from further analyses. We further selected wavelength between 400 and 690 nm which are the most relevant to animal vision.
 
-```{r COPS-loading}
-COPS_raw <- read_csv("data/C-OPS/C-OPS_fitted_processed.csv", show_col_types = F,
-                     locale = locale(tz = "UTC"))
+```{r light-loading}
+light <- read_csv("data/TriOS/Ed_extrapolated.csv", show_col_types = F,
+                  locale = locale(tz = "UTC")) %>%
+  # Use depth for combining with other dataset
+  rename(depth_round = depth) %>%
+  # Remove unused variables
+  select(-day)
 ```
 
-At each station, three replicates were collected. 
+I combine the WBAT and light dataset together.
 
-```{r COPS-tidying}
-COPS <- COPS_raw %>%
-  # Select stations and wavelengths of interest
-  filter(station %in% c("DE110", "DE320", "DE420") &
-           between(lambda_nm, 400, 690)) %>%
-  # Fix variable type
-  mutate(station = factor(station),
-         COPS_ID = factor(COPS_ID)) %>%
-  # Calculate mean kz and edz per 1 m depth bin to match CTD resolution
-  mutate(depth = round(depth)) %>%
-  unite(ID, COPS_ID, lambda_nm, sep = "_", remove = F) %>%
-  group_by(station, COPS_ID, ID, depth, lambda_nm) %>%
-  summarise(kz = mean(kz, na.rm = T),
-            edz = mean(ed_uW_cm2, na.rm = T)) %>%
-  ungroup()
-```
-
-To extrapolate irradiance at the depth of the DSL I need to use the appropriate coefficient of extinction (kz) (Figure 3). 
-
-```{r plot-COPS-fluo, fig.width=10, fig.height=8}
-# Combine fluo and CTD
-COPS_fluo <- COPS %>%
-  # Add CTD data
-  left_join(., CTD, by = c("station", "depth")) %>%
-  dplyr::select(station, ID, depth, wavelength, edz, kz, fluo) 
-
-# Color scale for edz and kz
-col_pal <- w_length2rgb(c(412, 443, 465, 490, 510, 532, 555, 560, 589,
-                          625, 665, 683)) %>% 
-  as_tibble() %>%
-  as.matrix()
-
-# Plot edz
-p_edz <- COPS_fluo %>%
-  filter(is.na(edz) == F) %>%
-  ggplot() +
-  geom_path(aes(x = edz, y = depth, col = factor(wavelength), group = ID),
-            alpha = 0.5) +
-  scale_x_log10(
-    "Ed 400-700 nm", 
-    breaks = scales::trans_breaks("log10", function(x) 10 ^ x),
-    labels = scales::trans_format("log10", scales::math_format(10 ^ .x))) +
-  annotation_logticks(sides = "b") +
-  scale_y_reverse() +
-  scale_color_manual(values = col_pal) +
-  facet_rep_wrap(~ station, scales = "free_y", ncol = 1) + 
-  theme(legend.position = "none")
-
-# Plot kz
-p_kz <- COPS_fluo %>%
-  filter(is.na(kz) == F) %>%
-  ggplot() +
-  geom_path(aes(x = kz, y = depth, col = factor(wavelength), group = ID), 
-            alpha = 0.5) +
-  scale_x_continuous("kz 400-700 nm") +
-  scale_y_reverse() +
-  scale_color_manual(values = col_pal) +
-  facet_rep_wrap(~ station, scales = "free_y", ncol = 1) + 
-  theme(legend.position = "none")
-
-# Plot fluo
-p_fluo <- CTD %>%
-  filter(cast_number %in% c(2, 13, 25) & fluo < 0.35) %>%
-  mutate(ymax_box = case_when(station == "DE110" ~ 38,
-                              station == "DE320" ~ 100,
-                              station == "DE420" ~ 96)) %>%
-  ggplot() +
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = ymax_box),
-            col = "red", fill = NA, alpha = 0.05, lty = 2) +
-  geom_path(aes(x = fluo, y = depth)) +
-  scale_x_continuous("Fluorescence (FLU)") +
-  scale_y_reverse(breaks = seq(0, 2000, 100)) +
-  facet_rep_wrap(~ station, scales = "free_y", ncol = 1)
-
-# Combine plots
-plot_grid(p_edz, p_kz, p_fluo, align = "hv", axis = "tblr", ncol = 3, 
-          labels = "auto", label_size = 9, label_x = 0.1)
-
-# Remove unused data
-rm(p_edz, p_kz, p_fluo, COPS_fluo, col_pal)
-```
-
-*Figure 3.* Vertical profile of (a) downwelling irradiance (Ed in µW cm^-2^ nm^-1^) and (b) coefficient of extinction (kz in m^-1^) between 400 and 700 nm (colored lines), and (c) fluorescence (arbitrary units) at each station. The dashed red rectangles in (c) indicate the depth ranges where light data are available. Note the different y-axis scale for (c) the fluorescence. 
-
-For each wavelength, we calculated the mean kz (k~mean~) of the last 5 m of the profile. To extrapolate irradiance at mesopelagic depth, we used both k~mean~ and the deepest kz (k~max~) available at each wavelength. 
-```{r kz-calulation}
-# Mean kz over the last 5 m
-kz_mean <- COPS %>% 
-  # Remove NAs
-  filter(is.na(kz) == F) %>%
-  # Find last 5 m of each wavelength at each station
-  group_by(station, COPS_ID, ID, wavelength) %>%
-  mutate(keep = if_else(max(depth) - depth <= 5, T, F)) %>%
-  filter(keep == T) %>%
-  summarise(kz_mean = mean(kz)) %>%
-  ungroup() %>%
-  # Keep relevant variables
-  dplyr::select(station, COPS_ID, ID, wavelength, kz_mean)
-
-# kz at max depth
-kz_max_depth <- COPS %>% 
-  # Remove NAs
-  filter(is.na(kz) == F) %>%
-  # Find last 5 m of each wavelength at each station
-  group_by(station, COPS_ID, ID, wavelength) %>%
-  mutate(keep = if_else(max(depth) == depth, T, F)) %>%
-  filter(keep == T) %>%
-  rename(kz_max_depth = kz) %>%
-  ungroup() %>%
-  # Keep relevant variables
-  dplyr::select(station, COPS_ID, ID, wavelength, kz_max_depth)
-```
-
-We extrapolated the ambient irradiance Ed~z~ down to the seafloor using the following equation:
-$$Ed_{z} = Ed_{0} . e ^ {-k . z}$$
-
-where Ed~z~ is the downwelling irradiance at depth z (in µW cm^-2^ nm^-1^), Ed~0~ the downwelling irradiance just below the surface in (µW cm^-2^ nm^-1^), k is either the k~mean~ or k~max~ (in m^-1^), and z is the depth (in m).
-
-```{r light-extratpolation}
-COPS_extra <- COPS %>%
-  # Complete dataset to 602 m
-  group_by(station, COPS_ID, ID, wavelength, mean_edz_0m) %>%
-  complete(depth = seq(0, 602, 1)) %>%
-  ungroup() %>%
-  # Remove data below seafloor
-  mutate(remove = case_when(station == "DE110" & depth > 260 ~ T,
-                            station == "DE320" & depth > 575 ~ T)) %>%
-  filter(is.na(remove) == T) %>%
-  dplyr::select(-remove) %>%
-  # Add kz mean and kz at max depth
-  left_join(., kz_mean, by = c("station", "COPS_ID", "ID", "wavelength")) %>%
-  left_join(., kz_max_depth, by = c("station", "COPS_ID", "ID", "wavelength")) %>%
-  # Extrapolate edz
-  mutate(edz_kz_mean = mean_edz_0m * exp(- kz_mean * depth),
-         edz_kz_max = mean_edz_0m * exp(- kz_max_depth * depth))
-
-# Remove unused data
-rm(kz_max_depth, kz_mean)
+```{r WBAT-light}
+WBAT_light <- WBAT %>%
+  mutate(date_round = round_date(date_start_CTD, "5 mins")) %>%
+  # Combine WBAT and light
+  left_join(., light, by = c("depth_round", "date_round"))
 ```
 
 # Results
+
+```{r}
+WBAT_light %>% 
+  filter(lambda_nm == 490) %>%
+  group_by(cast_number, frequency, depth_round, ed_calc_umol_m2) %>%
+  summarise(Sv_cor_mean = 10 * log10(mean(10 ^(Sv_cor_mean / 10)))) %>%
+  ggplot() + 
+  geom_point(aes(x = Sv_cor_mean, y = log10(ed_calc_umol_m2), col = frequency), alpha = 0.5) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = -9, ymax = -6, alpha = 0.5, fill = "grey20") +
+  facet_rep_wrap(~ cast_number)
+```
+
 
 ## DE110
 

@@ -121,7 +121,7 @@ tictoc::toc()
 
 ![](img/map_stations.png)
 
-*Figure 1.* Map of northern Baffin Bay with locations of sampling stations (orange circles).
+**Figure 1.** Map of northern Baffin Bay with locations of sampling stations (orange circles).
 
 ## Environmental data
 
@@ -211,6 +211,41 @@ rm(fluo)
 #   scale_y_reverse() +
 #   facet_wrap(~ cast_number, scales = "free"))
 ```
+
+Mean temperature, salinity and depth were used to calculate sound speed and absorption coefficients (Table 1).
+
+```{r table-CTD-acoustic-calibration}
+CTD %>%
+  mutate(date = format(date_start_CTD, "%d/%m")) %>%
+  group_by(date) %>%
+  summarise(lat_mean = mean(lat, na.rm = T), 
+            lon_mean = mean(lon, na.rm = T),  
+            te90_mean = mean(te90, na.rm = T),  
+            psal_mean = mean(psal, na.rm = T),
+            pres_mean = mean(pres, na.rm = T), 
+            depth_mean = mean(depth, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(sound_speed = round(swSoundSpeed(salinity = psal_mean, temperature = te90_mean,
+                                          pressure = pres_mean, longitude = lon_mean, latitude = lat_mean,
+                                          eos = "gsw"),
+                             3),
+         abs_coef38 = round(swSoundAbsorption(frequency = 38000, salinity = psal_mean,
+                                              temperature = te90_mean, pressure = pres_mean,
+                                              pH = 8, formulation = "francois-garrison"),
+                            6),
+         abs_coef120 = round(swSoundAbsorption(frequency = 120000, salinity = psal_mean,
+                                        temperature = te90_mean, pressure = pres_mean,
+                                        pH = 8, formulation = "francois-garrison"),
+                             6)) %>%
+  mutate(te90_mean = round(te90_mean, 3),
+         psal_mean = round(psal_mean, 3),
+         depth_mean = round(depth_mean, 3)) %>%
+  select(-lat_mean, -lon_mean, -pres_mean) %>%
+  DT::datatable()
+```
+
+**Table 1.** Mean temperature, salinity, depth, sound speed, and absorption coefficients at 38 kHz and 120 kHz used for calibrating acoustic data.
+
 
 ## Wideband Acoustic Transceiver (WBAT)
 
@@ -376,7 +411,7 @@ WBAT_bin %>%
         legend.key.width = unit(0.1, "in"))
 ```
 
-*Figure 2.* Echograms of volume backscattering strength (S~V~ in dB re 1 m^-1^) at 333 kHz (left) and 38 kHz (right) for each CTD cast. Note the difference depth scale between CTD casts.
+**Figure 2.** Echograms of volume backscattering strength (S~V~ in dB re 1 m^-1^) at 333 kHz (left) and 38 kHz (right) for each CTD cast. Note the difference depth scale between CTD casts.
 
 ```{r WBAT-range-selection}
 WBAT <- WBAT_bin %>%

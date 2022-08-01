@@ -125,7 +125,7 @@ tictoc::toc()
 
 ## Environmental data
 
-A Seabird SBE911+ Conductivity Temperature Depth sensor (CTD) collected vertical profiles of temperature, salinity, and pressure. The CTD rosette was also equipped with an oxygen sensor (Seabird SBE43), a transmissometer (Wetlab Cstar), two fluorimeters (Seabird SCF and ECO CDOM), two PAR sensors (one underwater Biospherical Instruments PAR-QCP 2300, and surface Biospherical Instruments PAR-QCP 2200), and a nitrate sensor (Satlantic). We only considered downcast data. 
+A Seabird SBE911+ Conductivity Temperature Depth sensor (CTD) collected vertical profiles of temperature, salinity, and pressure. The CTD rosette was also equipped with an oxygen sensor (Seabird SBE43), a transmissometer (Wetlab Cstar), two fluorimeters (Seabird SCF and ECO CDOM), two PAR sensors (one underwater Biospherical Instruments PAR-QCP 2300, and surface Biospherical Instruments PAR-QCP 2200), and a nitrate sensor (Satlantic). We only considered downcast data. The temperature and salinity profiles from the CTD were used to calculate the speed of sound and absorption coefficients for hydroacoustic calculations.
 
 ```{r load-CTD}
 # Load CTD data
@@ -247,9 +247,58 @@ CTD %>%
 **Table 1.** Mean temperature, salinity, depth, sound speed, and absorption coefficients at 38 kHz and 120 kHz used for calibrating acoustic data.
 
 
-## Wideband Acoustic Transceiver (WBAT)
+## Acoustics
 
-Broadband acoustic backscatter was recorded between 36-45 kHz and 283-333 kHz with a Simrad WBAT mounted on the CTD rosette. The transducers were facing sideward, pulse length was set to 2048 μs, power to and ping rate to 0.5 Hz. Acoustic data was analyzed with Echoview 12. WBAT acoustic backscatter data was manually inspected and cleaned. Data within the near-field was excluded (5.00 m). Using pulse compressed data, we exported mean volume backscatter strength (S~V~; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
+Acoustic backscatter was continuously recorded with the shipborne echosounder (Simrad EK80) at 38 and 120 kHz. The echosounder was operated in narrowband for most of the time, but was set to broadband for one hour when on station. We collected broadband backscatter profiles between 36-45 kHz and 280-440 kHz using an acoustic probe (Simrad WBAT) mounted on the CTD rosette with its transducers facing sideward. Both the shipborne echosounder and acoustic probe were calibrated using the standard sphere method (Demer et al. 2015), except for the 333 kHz single beam echosounder of the acoustic probe which was not calibrated. The echosounder settings are summarised in Table 2.
+
+```{r acoustic-settings}
+# Create table acoustic settings
+data.frame(Instrument = c(rep("EK80", 4), rep("WBAT", 2)),
+          Transducer = c(rep(c("ES38-7", "ES120-7C"), 2), c("ES38-18DK", "ES333-7CDK")),
+          Beam = c(rep("Split", 5), "Single"),
+          Mode = c("CW", "CW", "FM", "FM", "FM", "FM"),
+          freq = c("38", "120", "34-45", "90-170", "36-45", "280-440"),
+          power = c(2000, 250, 800, 175, 450, 50),
+          pulse_length = c(1024, 1024, 2048, 2048, 2048, 2048),
+          Ramping = c(rep("Fast", 4), "?", "?"),
+          ping_rate = c(rep("~0.5-0.25", 4), "0.5", "0.5")) %>%
+  rename("Frequency (kHz)" = freq,
+         "Power (W)" = power,
+         "Pulse length (μs)" = pulse_length,
+         "Ping rate (Hz)" = ping_rate) %>%
+  DT::datatable()
+```
+
+**Table 2.**  Narrowband (CW: continuous wave) and broadband (FM: frequency modulated) echosounder settings used during the DarkEdge campaign. 
+
+Acoustic data were scrutinized and analyzed with Echoview 12.1. For narrowband data of the ship-borne echosounder, we used data collected within their valid depth range, 10 - 1000 m at 38 kHz and 10 - 280 m at 120 kHz. We removed We removed background noise (10 dB SNR) and impulse noise using Echoview's algorithms (De Robertis and Higginbottom, 2007, Ryan et al. 2015). Acoustic backscatter was integrated at 38 and 120 kHz in 5 min × 5 m depth cells from which we calculated the mean volume backscattering strength (MVBS in dB re 1 m^-1^) and nautical area scattering coefficient (s~A~ in m^2^ nmi^-2^).
+
+```{r EK80-load-and-tidy-data}
+# Load EK80 data
+EK80 <- list.files("data/EK80", pattern = "*kHz.csv", full.names = T) %>% 
+  set_names() %>%
+  # Read files
+  map_dfr(.f = ~read_csv(., show_col_types = F, locale = locale(tz = "UTC")),
+          .id = "filename") %>%
+  # Fix date format
+  unite(dateS_EK80, Date_S, Time_S, sep = " ") %>%
+  # Round date to nearest minute to match with light irradiance data
+  mutate(date = round_date(ymd_hms(dateS_EK80, tz = "UTC"), "1 min"),
+         Frequency = factor(Frequency)) %>%
+  # Rename variables
+  rename(depth = Layer_depth_min,
+         lat = Lat_S,
+         lon = Lon_S,
+         frequency = Frequency) %>%
+  # Remove cells with less than 50 samples and that are out of the valid range
+  mutate(keep = case_when(frequency == 38 & between(depth, 10, 1000) ~ T,
+                          frequency == 120 & between(depth, 10, 280) ~ T)) %>%
+  filter(Good_samples > 50 & keep == T) %>%
+  # Only keep relevant variables
+  select(date,lat, lon, depth, frequency, Sv_mean, NASC)
+```
+
+We manually inspected and cleaned broadband data from the acoustic probe. Data within the near-field was excluded (5.00 m) Using pulse compressed data, we exported mean volume backscatter strength (S~V~; dB re 1 m^-1^) and nautical area scattering coefficient (s~A~; m^2^ nmi^-2^) at a resolution of 1 ping per 1 m range.
 
 ```{r WBAT-load-data}
 # Load WBAT data
@@ -483,21 +532,80 @@ Surface irradiance was collected  from October 12 until 25 from dusk to dawn wit
 light <- read_csv("data/TriOS/Ed_extrapolated.csv", show_col_types = F,
                   locale = locale(tz = "UTC")) %>%
   # Use depth for combining with other dataset
-  rename(depth_round = depth) %>%
+  rename(date = date_round) %>%
   # Remove unused variables
-  select(-day)
+  select(-day) %>%
+  # Rename variable for practicality
+  rename(ed_calc = ed_calc_umol_m2)
 ```
+
+I also prepare a dataset with with only the data at 490 nm. 
+
+```{r light-490}
+light_490 <- light %>%
+  # Select data at 490 nm
+  filter(lambda_nm == 490) %>%
+  # Complete data set
+  group_by(depth, lambda_nm) %>%
+  complete(date = seq(min(EK80$date), max(EK80$date), "5 mins")) %>%
+  ungroup()
+```
+
 
 I combine the WBAT and light dataset together.
 
 ```{r WBAT-light}
 WBAT_light <- WBAT %>%
-  mutate(date_round = round_date(date_start_CTD, "5 mins")) %>%
+  mutate(date = round_date(date_start_CTD, "5 mins")) %>%
+  rename(depth = depth_round) %>%
   # Combine WBAT and light
-  left_join(., light, by = c("depth_round", "date_round"))
+  left_join(., light, by = c("depth", "date"))
+```
+
+I also combine EK80 and light together.
+
+```{r}
+EK80_light <- EK80 %>%
+  # Combine EK80 and light
+  left_join(., light_490, by = c("date", "depth")) %>%
+  # Find hour of day
+  mutate(hour = hour(date),
+         day = day(date))
 ```
 
 # Results
+
+```{r}
+EK80_light %>%
+  ggplot() + 
+  geom_tile(aes(x = date, y = depth, fill = Sv_mean)) +
+  geom_contour(aes(x = date, y = depth, z = log10(ed_calc)), col = "red", breaks = -6) +  
+  geom_contour(aes(x = date, y = depth, z = log10(ed_calc)), col = "darkred", breaks = -9) +  
+  scale_fill_viridis_c(limits = c(-100, -55)) +
+  scale_x_datetime(limits = c(ymd_hms("2021-10-12 07:45:00"), ymd_hms("2021-10-13 23:45:00")),
+                   breaks = seq(ymd_hms("2021-01-01 00:00:00"), ymd_hms("2021-12-31 18:00:00"), "6 hours"),
+                   date_labels = "%d/%m\n%H:%M") +
+  scale_y_reverse() +
+  facet_rep_wrap(~ frequency, ncol = 1)
+```
+
+```{r}
+EK80_light %>%
+  filter(frequency == 38) %>%
+  # Calculate portion of backscatter
+  group_by(date, lat, lon, frequency) %>%
+  mutate(total_NASC = sum(NASC),
+         percent_NASC = NASC / sum(NASC) * 100) %>%
+  # group_by(day, hour, depth, frequency, ed_calc) %>%
+  # summarise(Sv_mean = 10 * log10(mean(10 ^(Sv_mean / 10)))) %>% 
+  # summarise(percent_NASC = mean(percent_NASC)) %>%
+  filter(is.na(ed_calc) == F) %>%
+  ggplot() + 
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = -9, ymax = -6, alpha = 0.5, fill = "grey20") +
+  geom_point(aes(x = NASC, y = log10(ed_calc), col = frequency), size = 0.1) +
+  # scale_x_continuous(limits = c(-100, -55), breaks = seq(-200, 0, 20)) +
+  facet_grid(day ~ hour)
+```
 
 ```{r}
 WBAT_light %>% 
